@@ -1,0 +1,93 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mpa"
+description = 'MPA library, daemons and CLI.'
+requires-python = ">= 3.12"
+version = "0.1.0"
+# readme = "README.md"
+dependencies = [
+  "argcomplete == 1.12.1",
+  "click == 8.2.1",
+  "packaging == 23.2",
+  "PyGObject == 3.46",             # libgirepository1.0-dev, gir1.2-nm-1.0, libcairo2-dev, python3-dev
+  "pyroute2 == 0.7.10",
+  "python-nginx == 1.5.7",
+  "pyzmq == 26.2.0",               # libzmq3-dev
+  "requests == 2.32.3",
+  "setuptools == 75.6.0",
+  "sshpubkeys == 3.3.1",
+  "systemd-python == 234",         # libsystemd-dev
+  "tenacity == 9.0.0",
+  "toml == 0.10.2",
+  "tpm2-pytss == 2.3.0",           # libtss2-dev
+]
+authors = [
+  {name = "Jan Górski", email = "j.gorski@welotec.com"},
+  {name = "Grzegorz Kwaśniewski", email = "g.kwasniewski@welotec.com"},
+  {name = "Rafał Ilnicki", email = "r.ilnicki@welotec.com"},
+  {name = "Maciej Liszewski", email = "m.liszewski@welotec.com"},
+]
+maintainers = [
+  {name = "Jan Górski", email = "j.gorski@welotec.com"},
+  {name = "Grzegorz Kwaśniewski", email = "g.kwasniewski@welotec.com"},
+  {name = "Rafał Ilnicki", email = "r.ilnicki@welotec.com"},
+  {name = "Maciej Liszewski", email = "m.liszewski@welotec.com"},
+]
+
+[project.optional-dependencies]
+test = [
+  "flake8 == 7.1.1",
+  "mypy == 1.15",
+  "pylint == 3.3.4",
+  "pytest == 8.3.4",
+  "pytest-cov == 6.0.0",
+  "ruff >= 0.12.12",
+  "types-requests",
+  "types-setuptools",
+  "types-toml",
+]
+
+[project.scripts]
+# CLIs
+device = "mpa.device.device:cli"
+docker-config = "mpa.docker.docker_config:cli"
+fw = "mpa.firewall.fw:cli"
+nm = "mpa.network.nm:cli"
+ovpn = "mpa.ovpn.ovpn:cli"
+
+# daemons
+health_monitor = "mpa.health_monitor.health_monitor:main"
+mgmtd-compose = "mpa.docker.mgmtd_compose:main"
+mgmtd-device = "mpa.device.mgmtd_device:main"
+mgmtd-docker = "mpa.docker.mgmtd_docker:main"
+mgmtd-firewall = "mpa.firewall.mgmtd_firewall:main"
+mgmtd-kernel = "mpa.device.mgmtd_kernel:main"
+mgmtd-logstreamer = "mpa.logs.mgmtd_logstreamer:main"
+mgmtd-network = "mpa.network.mgmtd_network:main"
+mgmtd-ovpn = "mpa.ovpn.mgmtd_ovpn:main"
+mgmtd-routing = "mpa.network.routing:main"
+mgmtd-shadow = "mpa.device.mgmtd_shadow:main"
+mgmtd-ssh = "mpa.device.mgmtd_ssh:main"
+mgmtd-subnets = "mpa.subnets.mgmtd_subnets:main"
+mgmtd-webgui = "mpa.webgui.mgmtd_webgui:main"
+mgmtd-swupdate = "mpa.swupdate.mgmtd_swupdate:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.mypy]
+python_version = 3.12
+warn_return_any = true
+warn_unused_configs = true
+strict = true
+exclude = ["build/", "pandoc/", "readme_pre_expander.py", "tests/"]
+
+[tool.ruff]
+line-length = 130
+
+[tool.ruff.lint]
+# Add the `line-too-long` rule to the enforced rule set.
+extend-select = ["E501"]

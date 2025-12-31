@@ -1,0 +1,19 @@
+README.md
+
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Python tools cache
+.pytest_cache/
+.mypy_cache/
+
+# IDE
+.vscode/
