@@ -1,0 +1,831 @@
+#
+# Copyright (c) 2025 Contributors to the Eclipse Foundation.
+#
+# See the NOTICE file(s) distributed with this work for additional
+# information regarding copyright ownership.
+#
+# This program and the accompanying materials are made available under the
+# terms of the Apache License, Version 2.0 which is available at
+# https://www.apache.org/licenses/LICENSE-2.0
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+"""
+Common helpers.
+"""
+
+# Standard imports
+from argparse import ArgumentTypeError
+import collections.abc as abc
+from time import sleep
+
+import copy
+import json
+import pyroute2  # type: ignore
+import ipaddress
+import sys
+import tempfile
+import uuid
+from contextlib import contextmanager
+from distutils.util import strtobool
+from functools import wraps
+from pathlib import Path
+from typing import Any, Callable, Dict, Iterator, Mapping, MutableMapping, NoReturn, \
+                   Optional, Union, TypeVar, Tuple, List
+
+# Third party imports
+import pyroute2.netlink  # type: ignore
+import pyroute2.netlink.rtnl  # type: ignore
+import pyroute2.netlink.rtnl.ifinfmsg  # type: ignore
+import toml
+
+from tenacity import retry, stop_after_attempt, wait_fixed, retry_if_exception_type
+
+# Local imports
+from mpa.common.common import FileExtension, RESPONSE_FAILURE, RESPONSE_OK
+from mpa.communication.client import DAEMON_DETAILS
+from mpa.communication.client import QueryHandlerCallable
+from mpa.communication.client import TrivialHandlerCallable
+from mpa.communication.client import AffirmHandlerCallable
+from mpa.communication.client import Async
+from mpa.communication.client import Client
+from mpa.common.logger import Logger
+from mpa.common.killer_thread import KillerThread
+from mpa.communication.process import run_command_unchecked
+from mpa.config.configfiles import ConfigFiles
+from mpa.communication.status_codes import SUCCESS
+
+logger = Logger(__name__)
+
+config_files: ConfigFiles = ConfigFiles()
+OS_RELEASE_FILE: Path = config_files.add("os_release", "os-release")
+config_files.verify()
+
+T = TypeVar('T')
+
+
+# TODO we keep it in communication just because this is the first directory we
+# added in MPA... we may wat to choose better place
+class RouteAlreadyExistsError(RuntimeError):
+    pass
+
+
+class InvalidParameterError(RuntimeError):
+    pass
+
+
+class InvalidPreconditionError(RuntimeError):
+    pass
+
+
+class ConflictingOperationInProgessError(InvalidPreconditionError):
+    pass
+
+
+class MissingTransactionStatusError(RuntimeError):
+    pass
+
+
+class TransactionRolledBackError(RuntimeError):
+    pass
+
+
+class InvalidPayloadError(RuntimeError):
+    pass
+
+
+class SetSerialError(RuntimeError):
+    pass
+
+
+class SmartEMSError(RuntimeError):
+    pass
+
+
+class SWUpdateError(RuntimeError):
+    pass
+
+
+class InvalidValueTypeForDictMerge(KeyError):
+    pass
+
+
+class SSHKeyManagementError(KeyError):
+    pass
+
+
+class NetworkManagerError(RuntimeError):
+    pass
+
+
+class NMDeviceActivationError(RuntimeError):
+    pass
+
+
+class InvalidVersionError(RuntimeError):
+    pass
+
+
+class InvalidImageFeaturesError(RuntimeError):
+    pass
+
+
+PLEASE_REPORT = """please report to Welotec that this error occured if possible including whole
+error text, logs gathered with command 'device get_logs' and steps to reproduce"""
+
+expected_error_messages = {}
+expected_error_messages["PermissionDeniedError"] = "Permission denied"
+expected_error_messages["RouteAlreadyExists"] = "Provided route already exists"
+expected_error_messages["InvalidPreconditionError"] = "Operation is impossible in current state of device"
+expected_error_messages["ConflictingOperationInProgessError"] = expected_error_messages["InvalidPreconditionError"]
+expected_error_messages["InvalidParameterError"] = "Invalid value of parameter provided by the user was detected"
+expected_error_messages["TransactionRolledBackError"] = "Command requiring confirmation was rolled-back"
+expected_error_messages["SmartEMSError"] = "Received invalid response from Smart EMS"
+expected_error_messages["SSHKeyManagementError"] = "Received invalid response from SSH keys managment sub-system"
+expected_error_messages["NetworkManagerError"] = "Received invalid response from NetworkManager daemon"
+expected_error_messages["NMDeviceActivationError"] = "Connection activation failed"
+expected_error_messages["InvalidVersionError"] = "Current OS version does not fulfill requirements for the update"
+expected_error_messages["InvalidImageFeaturesError"] = "Current OS version is not compatible with the update"
+expected_error_messages["SWUpdateError"] = """Software update failed.
+If details below do not help in resolving the issue (for example they suggest
+that update package was incorrect, but you think it was a good one)
+""" + PLEASE_REPORT + """
+(it would be nice if update package causing the issue was also present if
+possible)."""
+expected_error_messages["InvalidPayloadError"] = """
+Invalid value of parameter in file provided by the user or message generated by UI
+detected. This shall not happen unless an input file was tampered with manually
+by somebody.  If you suspect that it is not your fault,
+""" + PLEASE_REPORT + "If you used file as input add also information how this file was generated"
+
+unexpected_error_messages = {}
+unexpected_error_messages["RuntimeError"] = "Unspecified runtime error"
+unexpected_error_messages["SetSerialError"] = "Unexpected error while setting serial interface (or interfaces)"
+unexpected_error_messages["MissingTransactionStatusError"] = "Missing status from roll-backable command"
+unexpected_error_messages["CalledProcessError"] = "External command executed by management daemon failed in unpredicted way"
+
+
+@contextmanager
+def closer(to_close: Any) -> Iterator[Any]:
+    try:
+        yield to_close
+    finally:
+        to_close.close()
+
+
+def expect_empty_message(message: Optional[bytes], context: str) -> None:
+    if message:
+        logger.warning(f"Non empty message received by {context}: {message!r}")
+
+
+def get_single_string(message: bytes, variable: str) -> str:
+    value = json.loads(message)
+    if not isinstance(value, str):
+        raise RuntimeError(f"Message shall contain single string with new value of {variable}")
+    return value
+
+
+def cli_init(args: Any) -> Client:
+    try:
+        return Client(args=args)
+    except Client.ConnectionInitError:
+        print(RESPONSE_FAILURE)
+        print("CLI was unable to connect with messaging system. Maybe it is down or there is")
+        print("some other unlikely issue (like serious misconfiguration or problems with")
+        print("hardware). In any case this shall be investigated, so")
+        print(PLEASE_REPORT)
+        sys.exit(1)
+
+
+def cli_main_loop(client: Client, *args: Any, **kwargs: Any) -> None:
+    while True:
+        try:
+            client.wait_and_receive(*args, **kwargs)
+        except client.LostRequestList as lost:
+            with_response_found = False
+            without_response_found = False
+            for request in lost.lost_requests:
+                if request.response_topic and len(request.response_topic) > 0:
+                    with_response_found = True
+                else:
+                    without_response_found = True
+            print(RESPONSE_FAILURE)
+            print("Messaging system indicated that response for request is probably lost.")
+            if with_response_found:
+                print("One of management deamons went down around the time when CLI sent request")
+                print("to it, which can indicate that it crashed while it was processing it.")
+            if without_response_found:
+                print(f"{'Additionally o' if with_response_found else 'O'}ne of requests was not processed "
+                      "by any of managemnt daemons, which may happen")
+                print("if one of daemons crashed previously or if CLI tried to send invalid request")
+            print(f"Details about requests: {lost}")
+            print(f"As this shall not happen {PLEASE_REPORT}")
+            sys.exit(1)
+        except client.TimeoutError as timeout:
+            logger.exception(timeout)
+            print(RESPONSE_FAILURE)
+            print("CLI timed out while waiting for response from management daemon. This")
+            print("theoretically may happen if EG is overloaded or if there is a bug in CLI")
+            print("or some daemon. If the reason is other than overload, or if you think the")
+            print("reason was overload not triggered by your processes""")
+            print(PLEASE_REPORT)
+            # TODO add option to increase timeout and inform here how to use it in overloaded system
+            sys.exit(1)
+        except client.ConnectionResetError as cr:
+            logger.exception(cr)
+            print(RESPONSE_FAILURE)
+            print("Messaging system indicated that it does not know this CLI instance. Either the")
+            print("messaging system was bounced while this command was waiting for response from")
+            print("daemon, or this CLI instance was frozen for quite a bit of time. The latter may")
+            print("theoretically happen under very high system load. In any case")
+            print(PLEASE_REPORT)
+            sys.exit(1)
+
+
+def trivial_set_config(client: Client, *, topic: str, file_name: Path) -> None:
+    message = json.loads(file_name.read_text())
+    client.query(topic, message, exiting_print_message)
+
+
+def trivial_get_config(client: Client, *, topic: str, file_name: str | Path) -> None:
+    client.query(topic, "", rashly(store_json_config(file_name)))
+
+
+def ask_for_action(action: str) -> bool:
+    print("{action} [y/n]".format(action=action))
+    while True:
+        try:
+            return bool(strtobool(input().lower()))
+        except ValueError:
+            print("Please respond with 'y' or 'n'.")
+
+
+def ask_for_affirmation_with(asker: Callable[[str], bool]) -> Callable[[Client], AffirmHandlerCallable]:
+    def ask_for_affirmation(client: Client) -> AffirmHandlerCallable:
+        def asker_caller(cli: Client, question: str, response_topic: str, from_part: bytes, message_id: bytes) -> None:
+            answer = asker(question)
+            cli.respond(response_topic, answer, from_part, message_id)
+
+        def handler(response_topic: str, message: bytes, from_part: bytes, message_id: bytes) -> Async:
+            question = ("Changes were applied. "
+                        "To ensure they did not break connectivity for you please confirm that you see this message")
+            if message is not None and len(message) > 0:
+                question = ("Request for confirmation was received, "
+                            "but its contents are invalid, do you want to confirm blindly?")
+                try:
+                    loaded = json.loads(message)
+                    if isinstance(loaded, str) and len(loaded) > 1:
+                        question = loaded
+                except Exception:
+                    pass
+            thread = KillerThread(target=asker_caller, args=(client, question, response_topic, from_part, message_id))
+            thread.start()
+            return Async()
+        return handler
+    return ask_for_affirmation
+
+
+# TODO see comment about handler generator idea in client.py...
+def ask_for_affirmation(client: Client) -> AffirmHandlerCallable:
+    return ask_for_affirmation_with(ask_for_action)(client)
+
+
+def rashly(handler: TrivialHandlerCallable) -> QueryHandlerCallable:
+    '''
+    Adapts trivial handler to query handler which never waits in case of
+    suspected missing response.
+    '''
+    def rashly_handle(message: Union[bytes, str]) -> Optional[bool]:
+        if isinstance(message, str):
+            print(f"No response expected: {message}")
+            sys.exit(1)
+        handler(message)
+        return None
+    return rashly_handle
+
+
+PrintMessageCallable = Callable[[Mapping[str, Any]], None]
+
+
+def print_json_raw(data: Any, *, sort_keys: bool = False) -> None:
+    print(json.dumps(data, sort_keys=sort_keys, indent=4))
+
+
+def print_json_with_multiline_strings(data: Any, *, sort_keys: bool = False) -> None:
+    for line in json.dumps(data, sort_keys=sort_keys, indent=4).splitlines():
+        if '\\n' in line:
+            stripped = line.lstrip()
+            indent = len(line) - len(stripped)
+            for subline in stripped.replace('\\n', '\n    ').splitlines():
+                print(" " * indent, subline)
+        else:
+            print(line)
+
+
+def merge_dictionaries(data: MutableMapping[str, Any], to_add: Mapping[str, Any],
+                       *, overwrite_existing_keys: bool = False) -> None:
+    '''
+    Extends data by adding contents of to_add. By default it will not
+    overwrite any existing leafs (i.e. will finish successfully if and only if
+    leafs of to_add do not exist in data, raising InvalidValueTypeForDictMerge
+    if any existing value would be overwritten).
+
+    Default behaviour can be changed by setting overwrite_existing_keys to True
+    --- the merge will then replace values for any existing keys:
+    * existing dict value will be replaced by leaf in to_add
+    * existing leaf value will be replaced by dict in to_add
+    * existing leaf value will be replaced with new leaf vale from to_add
+      (and this may change the type of the leaf)
+    '''
+    try:
+        for key, value in to_add.items():
+            if key in data:
+                if isinstance(value, abc.Mapping) and isinstance(data[key], abc.Mapping):
+                    merge_dictionaries(data[key], value,
+                                       overwrite_existing_keys=overwrite_existing_keys)
+                elif overwrite_existing_keys:
+                    data[key] = value
+                else:
+                    raise InvalidValueTypeForDictMerge(f"{key} has value types incompatible for merging")
+            else:
+                data[key] = value
+    except InvalidValueTypeForDictMerge as exc:
+        raise InvalidValueTypeForDictMerge(f"{key}.{exc}")
+
+
+def filter_out_dict_in_place(data: MutableMapping[str, Any], to_remove: Mapping[str, Any]) -> bool:
+    removed_something = False
+    for key, value in to_remove.items():
+        if value is None:
+            removed_something = True
+            data.pop(key, "")
+        else:
+            if key in data:
+                if filter_out_dict_in_place(data[key], value):
+                    removed_something = True
+                if len(data[key]) == 0:
+                    data.pop(key)
+    return removed_something
+
+
+def filter_dict(data: MutableMapping[str, Any], to_leave: Mapping[str, Any]) -> MutableMapping[str, Any]:
+    retval: MutableMapping[str, Any] = {}
+    for key, value in to_leave.items():
+        if value is None:
+            if key in data:
+                retval[key] = copy.copy(data[key])
+        elif key in data:
+            new_value = filter_dict(data[key], to_leave[key])
+            if len(new_value) > 0:
+                retval[key] = new_value
+    return retval
+
+
+def filter_out_key_recursively(data: Any, to_remove: str) -> Any:
+    if isinstance(data, abc.Sequence):
+        return [filter_out_key_recursively(i, to_remove) for i in data]
+    if isinstance(data, abc.Mapping):
+        retval = {}
+        for key, value in data.items():
+            if key == to_remove:
+                continue
+            if isinstance(value, abc.Mapping):
+                retval[key] = filter_out_key_recursively(value, to_remove)
+            else:
+                retval[key] = copy.copy(value)
+        return retval
+    return data
+
+
+def exiting_print_sorted_message(message: Union[bytes, str]) -> Union[bool, NoReturn]:
+    return exiting_print_message(message, print_message=lambda data: print_json_with_multiline_strings(data, sort_keys=True))
+
+
+def exiting_print_filtered_message(to_remove: str) -> QueryHandlerCallable:
+    def print_function(data: Any) -> None:
+        print_json_with_multiline_strings(filter_out_key_recursively(data, to_remove), sort_keys=True)
+
+    def with_filter_applied(message: Union[bytes, str]) -> Union[bool, NoReturn]:
+        return exiting_print_message(message, print_message=print_function)
+
+    return with_filter_applied
+
+
+def exiting_print_message(message: Union[bytes, str], *,
+                          print_message: Optional[PrintMessageCallable] = print_json_raw) -> Union[bool, NoReturn]:
+    # TODO watch for commonalities here and in device.device_config.SetConfig.__callback
+    if isinstance(message, str):
+        print(f"No response expected: {message}")
+        if ask_for_action("Do you want to wait for response anyway"):
+            return True
+        sys.exit(1)
+    sys.exit(0 if print_message_ok(message, print_message=print_message) else 1)
+
+
+def print_message_exit_if_not_ok(message: Union[bytes, str]) -> None:
+    if isinstance(message, str):
+        print(f"No response expected: {message}")
+        sys.exit(1)
+    if not print_message_ok(message):
+        sys.exit(1)
+
+
+def make_query_handler(query_handler: QueryHandlerCallable) -> Callable[[Callable[[], None]], QueryHandlerCallable]:
+    def decorator(func: Callable[[], None]) -> QueryHandlerCallable:
+        @wraps(func)
+        def wrapped(message: Union[bytes, str]) -> Optional[bool]:
+            retval = query_handler(message)
+            if retval is not None:
+                return retval
+            func()
+            return None
+        return wrapped
+    return decorator
+
+
+def invalid_format(error_text: str) -> None:
+    print(f"{error_text}\nThis error had invalid format therefore\n{PLEASE_REPORT}")
+
+
+def print_message_list_with_custom_response(message: bytes, response: str) -> None:
+    if print_message_ok(message, print_message=None):
+        loaded = json.loads(message)
+        if isinstance(loaded, list):
+            print(f"{response}")
+            for item in loaded:
+                print(f"\t {item}")
+            sys.exit(0)
+        else:
+            invalid_format(loaded)
+            sys.exit(1)
+    else:
+        sys.exit(1)
+
+
+def print_error_message(message: str) -> bool:
+    """
+    Parses error message, if succeeded prints its human friendly version.
+
+    Returns True if message was printed, False otherwise.
+
+    Error message (lines parameter) shall consist of error clas name and details
+    of error in parens, optionally followed by line starting with
+    {DAEMON_DETAILS} indicating PID of deamon which logged more details.
+    """
+    if not message.startswith(RESPONSE_FAILURE):
+        return False
+    lines = message[len(RESPONSE_FAILURE):].split("\n")
+    details_len = len(lines)
+    if details_len > 1:
+        if lines[-1].startswith(DAEMON_DETAILS):
+            details_len -= 1
+    error_class, paren, error_details = lines[0].strip().partition("(")
+    if paren != "(":
+        return False
+    error_class = error_class.strip()
+    lines[0] = error_details
+    shall_ask_for_reporting_error = False
+    reporting_error_reason = "\nDue to "
+    print(RESPONSE_FAILURE)
+    if error_class in expected_error_messages:
+        print(expected_error_messages[error_class])
+    else:
+        reporting_error_reason += "unexpected error type "
+        shall_ask_for_reporting_error = True
+        if error_class in unexpected_error_messages:
+            print(unexpected_error_messages[error_class])
+        else:
+            print(f"Unrecognized error class '{error_class}'")
+    if lines[details_len - 1][-1] == ")":
+        without_closing_paren = lines[details_len - 1][:-1]
+        lines[details_len - 1] = without_closing_paren
+    else:
+        if shall_ask_for_reporting_error:
+            reporting_error_reason += "and "
+        shall_ask_for_reporting_error = True
+        reporting_error_reason += "missed closing paren "
+    if details_len > 1 or len(lines[0]):
+        print("\nDetails:",
+              *(subline for line in lines[:details_len] for subline in line.split('\\n')),
+              '',
+              *lines[details_len:], sep='\n')
+    if shall_ask_for_reporting_error:
+        print(reporting_error_reason, PLEASE_REPORT, sep='')
+    return True
+
+
+def is_response_ok(message: bytes) -> bool:
+    try:
+        loaded = json.loads(message)
+    except (json.decoder.JSONDecodeError, UnicodeDecodeError):
+        return False
+    return isinstance(loaded, str) and loaded.startswith(RESPONSE_OK)
+
+
+def is_response_failed(message: bytes) -> bool:
+    try:
+        loaded = json.loads(message)
+    except (json.decoder.JSONDecodeError, UnicodeDecodeError):
+        return False
+    return isinstance(loaded, str) and loaded.startswith(RESPONSE_FAILURE)
+
+
+def print_and_exit_on_falilure_report(message: bytes) -> None:
+    if is_response_failed(message):
+        print_error_message(json.loads(message))
+        sys.exit(1)
+
+
+def print_message_ok(message: bytes, *,
+                     print_message: Optional[PrintMessageCallable] = print_json_raw) -> bool:
+    """
+    Prints message and returns False if it was failure report.
+
+    Message must be in json format. There are three types of results:
+
+    * For operation which succeeds and provides some data --- message shall be
+      anything else than single string --- json is decoded and printed, function
+      returns True
+    * For operation which succeeds and does not return any useful data ---
+      message must be single string starting with {RESPONSE_OK}. Message is
+      printed and function returns True
+    * For operation which failed message shall be single string starting
+      anything else than {RESPONSE_OK} in which case function will return False
+      and information about error will be printed with help of
+      print_error_message(). In case of print_error_message() failure error will
+      be printed verbatim and information about invalid format will be added.
+
+    """
+    # TODO watch for commonalities here and in device.device_config.SetConfig.__callback
+    try:
+        loaded = json.loads(message)
+    except json.decoder.JSONDecodeError as exc:
+        print(f"Invalid format of response (decode error: {exc}), {PLEASE_REPORT}")
+        return False
+    if isinstance(loaded, str):
+        if loaded.startswith(RESPONSE_OK):
+            if print_message is not None:
+                print(loaded)
+            return True
+        elif not print_error_message(loaded):
+            invalid_format(loaded)
+        return False
+    if print_message is not None:
+        print_message(loaded)
+    return True
+
+
+def store_json_config(filename: str | Path, key: Optional[str] = None) -> TrivialHandlerCallable:
+    return store_config(filename, file_ext=FileExtension.JSON, key=key)
+
+
+def store_toml_config(filename: str | Path, key: Optional[str] = None) -> TrivialHandlerCallable:
+    return store_config(filename, file_ext=FileExtension.TOML, key=key)
+
+
+def store_yaml_config(filename: str | Path, key: Optional[str] = None) -> TrivialHandlerCallable:
+    return store_config(filename, file_ext=FileExtension.YAML, key=key)
+
+
+def store_config(filename: str | Path, file_ext: FileExtension, key: Optional[str] = None) -> TrivialHandlerCallable:
+    def store(message: bytes) -> NoReturn:
+        if not print_message_ok(message, print_message=None):
+            sys.exit(1)
+        decoded = json.loads(message)
+        if key is not None:
+            decoded = decoded[key]
+        try:
+            with Path(filename).open("w") as output_file:
+                match file_ext:
+                    case FileExtension.TOML:
+                        toml.dump(decoded, output_file)
+                    case FileExtension.JSON:
+                        json.dump(decoded, output_file, sort_keys=False, indent=4)
+                    case FileExtension.YAML:
+                        # TODO
+                        # we are not actually checking if the content is a valid yaml
+                        assert isinstance(decoded, str)
+                        output_file.write(decoded)
+                    case _:
+                        raise NotImplementedError
+                print(f"Requested config saved to {filename}")
+                sys.exit(0)
+        except PermissionError:
+            print(f"Sorry, an error has occurred while attempting to write to the {filename!r}.\n"
+                  "It seems that the file already exists, and you do not have the necessary permissions to overwrite it.\n"
+                  "Please check your permissions.")
+            sys.exit(1)
+    return store
+
+
+@retry(
+    stop=stop_after_attempt(4),
+    wait=wait_fixed(0.25),
+    retry=retry_if_exception_type(pyroute2.NetlinkDumpInterrupted),
+    reraise=True,
+)
+def get_links() -> list[pyroute2.netlink.rtnl.ifinfmsg.ifinfmsg]:
+    with pyroute2.IPRoute() as ipr:
+        return ipr.get_links()  # type: ignore
+
+
+def get_ifname(link: pyroute2.netlink.rtnl.ifinfmsg.ifinfmsg) -> str:
+    name = link.get_attr("IFLA_IFNAME")
+    assert isinstance(name, str)
+    return name
+
+
+def get_ifname_to_idx() -> dict[str, int]:
+    ifname_to_idx = {}
+    for link in get_links():
+        idx = link["index"]
+        assert isinstance(idx, int)
+        ifname_to_idx[get_ifname(link)] = link["index"]
+
+    return ifname_to_idx
+
+
+def get_system_network_interfaces() -> set[str]:
+    return set(get_ifname_to_idx())
+
+
+def is_macvlan(link: pyroute2.netlink.rtnl.ifinfmsg.ifinfmsg) -> bool:
+    return bool(
+        link.get_attr("IFLA_LINK")
+        and link.get_attr("IFLA_LINKINFO").get_attr("IFLA_INFO_KIND") == "macvlan"
+    )
+
+
+def get_lan_interfaces() -> set[str]:
+    lan_ifaces = set()
+    for link in get_links():
+        iface = get_ifname(link)
+        if iface.startswith("lan") and not is_macvlan(link):
+            lan_ifaces.add(iface)
+
+    return lan_ifaces
+
+
+def get_macvlans() -> set[str]:
+    return set(get_ifname(link) for link in get_links() if is_macvlan(link))
+
+
+def get_interface_name_from_ip_addres(address: str) -> Optional[str]:
+    with pyroute2.IPRoute() as ipr:
+        for link in ipr.get_addr():
+            if link.get_attr("IFA_LOCAL") == address:
+                label = link.get_attr("IFA_LABEL")
+                assert isinstance(label, str)
+                return label
+    return None
+
+
+# TODO this code was copied/pasted/modified into message_parser.py --- it is
+# currently used only in nm CLI to validate ip the same way daemon does, so
+# probably can be removed from here (and left only in message_parser.py
+def is_network_address_correct(address: str, netmask: int) -> Tuple[bool, str]:
+    is_valid = False
+    proposed_correct_address = ""
+    try:
+        ipaddress.ip_network(f"{address}/{netmask}")
+        is_valid = True
+    except ValueError:
+        try:
+            network_address = ipaddress.ip_network(f"{address}/{netmask}", strict=False)
+            proposed_correct_address = f"{network_address.network_address}/{netmask}"
+        except ValueError:
+            pass
+    return is_valid, proposed_correct_address
+
+
+# TODO replace with distutils.util.strtobool
+def string_to_bolean(svalue: Union[bool, str]) -> bool:
+    if isinstance(svalue, bool):
+        return svalue
+    if svalue.lower() in ['yes', 'y']:
+        return True
+    elif svalue.lower() in ['no', 'n']:
+        return False
+    else:
+        raise ArgumentTypeError('Boolean value expected.')
+
+
+# Name of this function is misleading --- it not only reads content, but also converts generic OSError into very
+# specific one InvalidPreconditionError. In general we use InvalidPreconditionError to signal to user, that he tried to
+# execute command while device is in incorrect state (e.g. tried to enable something without first providing
+# configuration for that something). So this method shall be used only if the fact that file is missing can be caused by
+# user executing commands in e.g. invalid sequence. Name of this function does not reveal this specific use case for
+# which it shall be applicable.
+# Additionally, as we are converting ANY OSError, it can happen that some other issue will be hidden and incorrectly
+# reported.
+# TODO analyze where this method is used and correct issues mentioned above
+def read_file_content(filepath: Union[Path, str]) -> str:
+    try:
+        with open(filepath, "r") as f:
+            return f.read()
+    except OSError:
+        raise InvalidPreconditionError(f"Requested file {filepath} does not exist")
+
+
+def get_timezones() -> List[str]:
+    timezones = run_command_unchecked("timedatectl list-timezones")
+    return timezones.stdout.decode('UTF-8').split()
+
+
+def get_kernel_command_line() -> List[str]:
+    with open('/proc/cmdline', 'r') as kernel_command_line:
+        cmd_line = kernel_command_line.read()
+    return cmd_line.split()
+
+
+def is_valid_uuid(value: str) -> bool:
+    try:
+        uuid.UUID(value)
+        return True
+    except ValueError:
+        return False
+
+
+def get_current_root_partition() -> str:
+    current_root_partition = "UNKNOWN"
+    kernel_command_line = get_kernel_command_line()
+    for cmd in kernel_command_line:
+        if cmd.startswith("root"):
+            root_parted = cmd.split("=")  # split root=PARTUUID=5fad0ee7-8e5b-4c96-80c3-748f2024fe0c
+            for part in root_parted:  # search for partition uuid
+                if is_valid_uuid(part):
+                    current_root_partition = part
+    return current_root_partition
+
+
+def get_os_release_info() -> Mapping[str, str]:
+    with open(OS_RELEASE_FILE, 'r') as os_release:
+        os_release_info = os_release.read()
+    os_list = os_release_info.strip().split('\n')
+    os_info_dict = {}
+    for item in os_list:
+        key, value = item.split("=")
+        os_info_dict.update({key: value})
+    return os_info_dict
+
+
+def build_nested_dict(dot_separated_keys: str, value: T) -> Dict[str, Any]:
+    nested_dict: Union[T, Dict[str, Any]] = value
+    for key in reversed(dot_separated_keys.split('.')):
+        nested_dict = {key: nested_dict}
+    if isinstance(nested_dict, Dict):
+        return nested_dict
+    raise InvalidPayloadError(f"there were no keys for nested dict --- '{dot_separated_keys}'"
+                              "should be dot separated list of keys")
+
+
+def reboot_if_ok(status: Any) -> None:
+    """
+    Intended as post_respond handler of client.background() function.
+    """
+    if isinstance(status, str) and status.startswith(RESPONSE_OK):
+        logger.info("Will execute reboot in 1 second")
+        sleep(1)
+        run_command_unchecked("pkexec /usr/sbin/eg_reboot")
+    else:
+        logger.warning("Not executing reboot as status was not OK")
+
+
+# ToDo: make status type mandatory and add allow value list (enum?)
+# Also consider integrating similar code we have in mgmtd-ovpn and for serials in mgmd-device
+def get_service_status(service: str, status_type: str = "is-active") -> bool:
+    return run_command_unchecked(f"systemctl {status_type} --quiet {service}.service").returncode == SUCCESS
+
+
+def argument_type_error_wrapper(func: Callable[..., Any]) -> Callable[..., Any]:
+    def inner(*args: Any, **kwargs: Any) -> Any:
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            raise ArgumentTypeError(e)
+
+    return inner
+
+
+def file_check(file: str | Path, mode: str) -> Path:
+    with open(file, mode):
+        ...
+
+    return Path(file)
+
+
+@argument_type_error_wrapper
+def readable_file(file: str) -> Path:
+    return file_check(file, "r")
+
+
+@argument_type_error_wrapper
+def writable_file(file: str) -> Path:
+    file_path = Path(file)
+    if file_path.exists():
+        return file_check(file_path, "w")
+
+    with tempfile.TemporaryFile("w", dir=Path(file).parent):
+        ...
+
+    return file_path

@@ -1,0 +1,25 @@
+# ==============================================================================
+#                      IoT Edge Daemon configuration
+# ==============================================================================
+
+# Hostname shall be ignored by set_configfile
+hostname = "test_hostname"
+auto_reprovisioning_mode = "Dynamic"
+# connection string shall be set by set_configfile
+[provisioning]
+source = "manual"
+connection_string = "test_connection_string"
+
+[certificates]
+auto_generated_ca_lifetime_days = 90
+
+# Moby runtime shall not be modifiable
+[moby_runtime]
+uri = "shall_be_ignored"
+network = "shall_be_ignored"
+
+
+# Watchdog shall be added byt set_configfile
+[watchdog]
+max_retries = 2
+
