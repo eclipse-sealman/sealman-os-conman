@@ -289,6 +289,22 @@ def azure_set_string(client: Client, connection_string: str) -> None:
     client.query(topics.azure.set_connection_string, connection_string, exiting_print_message)
 
 
+@cli.command_with_client("set-dps-tpm", timeout_ms=60_000)
+@click.option("-i", "--id-scope", required=True)
+@click.option("-r", "--registration-id", required=True)
+def azure_set_dps_tpm(client: Client, id_scope: str, registration_id: str) -> None:
+    """Set Azure configuration to use provided scope id and registration id (TPM mode).
+
+    Configures Azure IoT Edge daemon to use TPM module for provisioning.
+    This change is permament (performing configuration backup is up to the user).
+    """
+    client.query(
+        topics.azure.set_tpm,
+        {"scope_id": id_scope, "registration_id": registration_id},
+        exiting_print_message,
+    )
+
+
 @azure.command_with_client("set-dps-x509", timeout_ms=60_000)
 @click.option("-k", "--identity-pk", type=click.Path(readable=True, path_type=Path), required=True)
 @click.option("-p", "--identity-cert", type=click.Path(readable=True, path_type=Path), required=True)
@@ -1334,7 +1350,7 @@ def webgui_redirect(client: Client, mode: bool | None) -> None:
 #################################################################################
 
 
-@cli.command_with_client("azure_set_tpm", timeout_ms=60_000, hidden=True, deprecated="Use `device azure set-dps-x509`.")
+@cli.command_with_client("azure_set_tpm", timeout_ms=60_000, hidden=True, deprecated="Use `device azure set-dps-tpm`.")
 @click.argument("id_scope")
 @click.argument("registration_id")
 def azure_set_tpm_deprecated(client: Client, id_scope: str, registration_id: str) -> None:
