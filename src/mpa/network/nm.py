@@ -133,8 +133,8 @@ def cellular() -> None:
     """Manage cellular interface.
 
     Examples:
-    *** set -i 1 on  --- to enable cellular1 interface
-    *** set -i 2 off --- to disable cellular2 interface
+    *** set 1 on  --- to enable cellular1 interface
+    *** set 2 off --- to disable cellular2 interface
     """
 
 
@@ -684,6 +684,40 @@ def vlan_show(client: Client) -> None:
 #################################################################################
 #                               DEPRECATED COMMANDS                             #
 #################################################################################
+
+
+@cli.command_with_client("turn_on_cellular", hidden=True, deprecated="Use `nm cellular set`.")
+@interface_number_argument_decorator
+def turn_on_cellular_deprecated(client: Client, interface: int) -> None:
+    data = {"state": "on", "interface": interface}
+    client.query(topics.net.cellular.change_state, data, exiting_print_message)
+
+
+@cli.command_with_client("turn_off_cellular", hidden=True, deprecated="Use `nm cellular set`.")
+@interface_number_argument_decorator
+def turn_off_cellular_deprecated(client: Client, interface: int) -> None:
+    data = {"state": "off", "interface": interface}
+    client.query(topics.net.cellular.change_state, data, exiting_print_message)
+
+
+@cli.command_with_client("configure_cellular", hidden=True, deprecated="Use `nm cellular configure`.")
+@click.option("-a", "--apn", required=True)
+@click.option("-p", "--pin", type=PinType())
+@click.option("-A", "--access_number", default="*99***1#", show_default=True)
+@click.option("-u", "--user")
+@click.option("-P", "--password")
+@interface_number_argument_decorator
+def configure_cellular_deprecated(client: Client, interface: int, pin: str, apn: str, access_number: str, user: str,
+                                  password: str) -> None:
+    data = {
+        "apn": apn,
+        "pin": pin or "",
+        "access_number": access_number,
+        "username": user or "",
+        "password": password or "",
+        "interface": interface
+    }
+    client.query(topics.net.cellular.set_config, data, exiting_print_message)
 
 
 @cli.command_with_client("cellular_turn_on", hidden=True, deprecated="Use `nm cellular set`.")
