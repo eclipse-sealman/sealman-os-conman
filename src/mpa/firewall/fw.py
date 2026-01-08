@@ -164,7 +164,7 @@ def get_config(client: Client, filename: Path) -> None:
     with this command.
 
     Examples:
-    *** --file firewall_config.json --- restore configuration from file 'firewall_config.json'""",
+    *** --file file-firewall_config.json --- restore configuration from file 'file-firewall_config.json'""",
     timeout_ms=40_000,
 )
 @readable_file_option_decorator(allowed_extensions=FileExtension.JSON)
@@ -551,7 +551,10 @@ def modify_forward(client: Client, command: str, rule_name: str, name: str, make
     netdev/ingress/CHAIN_NAME/mgmtd). This is special chain which needs to be
     created with command create-chain-ingress first. {MODIFY_NOTE}
 
-    {MODIFY_EXAMPLES}""")
+    Examples:
+    *** ingress-chain-name add drop_smtp -l tcp -p 25 -v accept -d "This rule shall drop any SMTP packets"
+    --- add a new rule (with action not matching description!)
+    *** ingress-chain-name edit drop_smtp -l tcp -p 25 -v drop --- correct previously created rule""")
 @click.argument("chain_name")
 @add_rule_action_arguments
 @add_filtering_options

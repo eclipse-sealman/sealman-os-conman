@@ -326,9 +326,10 @@ def readable_file_option_decorator(
     return click.option(
         "-f",
         "--filename",
+        "--file",
         required=default_filename is None and required,
         default=default_filename,
-        type=click.Path(file_okay=True, readable=True, path_type=Path),
+        type=click.Path(exists=True, path_type=Path),
         callback=callback,
         help=help_text,
     )
@@ -338,6 +339,7 @@ def writable_file_option_decorator(filename: str) -> Callable[[FC], FC]:
     return click.option(
         "-f",
         "--filename",
+        "--file",
         default=filename,
         show_default=True,
         type=click.Path(writable=True, path_type=Path),
