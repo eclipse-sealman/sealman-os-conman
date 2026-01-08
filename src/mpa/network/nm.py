@@ -281,7 +281,7 @@ def static_ip(client: Client, name: str, ip: str, gateway: str, mtu: str, subnet
     Examples:
     *** --name lan1 --ip 10.0.0.1 --subnet 8 --- configure static ip 10.0.0.1/8 on lan1
     without gateway!
-    *** --name lan2 --ip 192.168.1.2 --gateway 192.168.1.1 --- configure static ip 192.168.1.2/24
+    *** --name lan2 --ip 192.168.1.2 --gateway 192.168.1.1 --subnet 24 --- configure static ip 192.168.1.2/24
     with gateway 192.168.1.1
     """
     data = {"network": {name: {"dhcp": False, "ip": [ip], "subnet": [subnet], "gateway": gateway, "dns": dns, "mtu": mtu}}}
@@ -338,7 +338,7 @@ def set_config(client: Client, filename: Path, unconditionally: bool) -> None:
     file. The file could have been generated on same or another device.
 
     Examples:
-    *** --file network_config.json --- restore configuration from file 'network_config.json'
+    *** --filename file-network_config.json --- restore configuration from file 'network_config.json'
     """
     message = json.loads(filename.read_text())
     message["ask_for_affirmation"] = not unconditionally
@@ -377,7 +377,7 @@ def static_routing() -> None:
 
     Examples:
     *** enable --- enables static routing rules stored in currently selected preset
-    *** add -n 192.168.0.0 -s 24 -d lan1 --- add route to 192.168.0.0/24 via `lan1` device
+    *** add -a 192.168.0.0 -s 24 -d lan1 --- add route to 192.168.0.0/24 via `lan1` device
     *** order -i 1 -I 2 -c lan1 --- change order of rules for `lan1` device in edited preset
     *** remove -i 1 -c lan1 --- remove rule from `lan1` device in edited preset
     """

@@ -151,8 +151,7 @@ def serial() -> None:
     and keep it that way after reboot
     *** console 1 now on --- turn on console at serial port 1 immediately,
     state after reboot will not be affected
-    *** ; cat ./serial_config.json --- save serial config to file `serial_config.json`
-    and print it to the screen
+    *** get-config --- save serial config to file `serial_config.json`
     """
 
 
@@ -234,15 +233,13 @@ def user_password_hash_set_config(client: Client, filename: Path) -> None:
     help=f"""Manage Azure IoT Edge daemon configuration.
 
     Examples:
-    *** set-config -f {AZURE_CONFIG_JSON} --- restore config from file `{AZURE_CONFIG_JSON}`
+    *** set-config -f file-{AZURE_CONFIG_JSON} --- restore config from file `file-{AZURE_CONFIG_JSON}`
     *** set-string 'Connection String' --- set connection string value to `Connection String`
-    *** set-dps-x509 -i scope_id_from_iot_hub -p /path/to/cert_file -k /path/to/private_key_file
-    *** set-certificate -t path/to/trust_bundle_cert -d path/to/device_ca_cert -p path/to/device_ca_private_key
+    *** set-dps-x509 -i scope_id_from_iot_hub -p file-cert -k file-private-key
+    *** set-certificate -t file-trust-bundle-cert -d file-device-ca-cert -p file-device-ca-private-key
     *** set-option -t  provisioning.attestation -e 'method = "tpm"' --- change attestation method to tpm
     *** set-option -t f.b.z -e 'l = ["a", "1"]' -d --- show partial TOML to add topic f.b.z with value
     being list of two strings
-    *** set-option -t f.b.z -e 'l = ["a", 1]' -d --- show partial TOML to add topic f.b.z with value
-    being list of a string and a number
     *** set-option -t f.b.z -e 'x = "a"' -e 'y = "b"' --- add topic f.b.z with two entries"""
 )
 def azure() -> None:
@@ -779,7 +776,7 @@ def ssh() -> None:
     "~/.ssh/authorized_keys".
 
     Examples:
-    *** set --public_key_auth on --password_auth off --- allow key based authentication
+    *** set --public-key-auth on --password-auth off --- allow key based authentication
     but disable password based one
     *** set -p off --- disable password auth (leave key based auth in same state
     as it was before - this command will fail if key based authentication was turned off already)
@@ -1145,7 +1142,7 @@ def certificate() -> None:
     """Manage security certificate used by SmartEMS.
 
     Examples:
-    *** add -c cert.pem --- add self-signed certificate
+    *** add -c file-cert.pem --- add self-signed certificate
     *** delete --- remove custom certificate
     *** show --- display content of custom certificate
     """

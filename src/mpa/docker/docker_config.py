@@ -63,7 +63,7 @@ def compose() -> None:
     will be stored in centrally managed location and started by special user named 'composed'.
 
     Examples:
-    *** load -f ./compose.yml -n pump_regulator --- load contens of compose.yml in current directory
+    *** load -f file-compose.yml -n pump_regulator --- load contens of compose.yml in current directory
     under the name 'pump_regulator'
     *** delete -n pump_regulator --- delete compose file added by above example
     *** get-config --- get all compose files configured
@@ -156,9 +156,9 @@ def dns() -> None:
     """Add and remove DNS servers from your docker configuration.
 
     Examples:
-    *** add <IP_ADDR> --- add <IP_ADDR> as DNS for docker
-    *** delete <IP_ADDR> --- remove <IP_ADDR> from list of DNS's of docker
-    *** set-config -f <FILENAME> --- replace current DNS list with one from file
+    *** add 192.168.100.255 --- add <IP_ADDR> as DNS for docker
+    *** delete 192.168.100.255 --- remove <IP_ADDR> from list of DNS's of docker
+    *** set-config -f file-dockerdns_config.json --- replace current DNS list with one from file
     *** get-config  --- store current configuration in file ./dockerdns_config.json
     *** show --- display current nameservers from docker configuration
     """
@@ -214,7 +214,7 @@ def auth_add(client: Client, user: str, password: str, url: str) -> None:
     """Authenticate to private repositories.
 
     Examples:
-    *** -u <user> -p <password> -U <url> --- authenticate to <url> with <user> and <passowrd>
+    *** -u user -p password -U url --- authenticate to <url> with <user> and <passowrd>
     """
     data = {"auths": {url: {"auth": base64.b64encode(f"{user}:{password}".encode()).decode()}}}
     client.query(topics.docker.compose.auth_add, data, exiting_print_message)
@@ -226,7 +226,7 @@ def auth_remove(client: Client, url: str) -> None:
     """Remove URL to private repositories.
 
     Examples:
-    *** -U <url> --- remove authentication to <url>
+    *** -U url --- remove authentication to <url>
     """
     client.query(topics.docker.compose.auth_remove, {"url": url}, exiting_print_message)
 
@@ -236,7 +236,7 @@ def params() -> None:
     """Configuration of docker daemon parameters.
 
     Examples:
-    *** set --mtu <MTU> --- sets given MTU for docker network interface (null for removal)
+    *** set --mtu 2000 --- sets given MTU for docker network interface (null for removal)
     *** set --debug --- enable docker debug mode
     """
 
