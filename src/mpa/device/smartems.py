@@ -503,7 +503,8 @@ WantedBy=timers.target
         ems_config = json.loads(self.read_smart_ems_config())
         # it may not be present in a config
         self.skip_ssl_verification = ems_config.get('skip_ssl_verification') or False
-        if not ems_config.get("url"):
+        url = ems_config.get("url")
+        if url == "" or url is None:
             logger.info("SmartEMS URL not configured")
             return
         url_path = urlparse(ems_config['url'])  # Remove all '/' character occurrence at the end of the URL
