@@ -106,6 +106,10 @@ class dev:
             set_config = "dev.user.password_hash.set_config"
             get_config = "dev.user.password_hash.get_config"
 
+        class password_complexity:
+            set_config = "dev.user.password_complexity.set_config"
+            get_config = "dev.user.password_complexity.get_config"
+
 
 class smart_ems:
     set_config = "smart_ems.set_config"
