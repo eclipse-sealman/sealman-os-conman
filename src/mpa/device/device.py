@@ -14,6 +14,7 @@
 import getpass
 import json
 import pwd
+import shutil
 import sys
 import toml
 from pathlib import Path
@@ -1171,10 +1172,29 @@ def certificate_show(client: Client) -> None:
 @cli.command_with_client(timeout_ms=120_000)
 @readable_file_option_decorator(allowed_extensions=FileExtension.SWU)
 def swupdate(client: Client, filename: Path) -> None:
+    def print_progress_bar(current_percent: int, extra_info: str, fill: str = '█') -> None:
+        term_width = shutil.get_terminal_size().columns
+        percent_str = f"{current_percent:.1f}%"
+        # Reserve space for extra_info + borders + percent
+        static_length = len(extra_info) + len(" || ") + len(percent_str)
+        bar_length = max(10, term_width - static_length - 5)  # keep at least 10 bars
+        filled_length = bar_length * current_percent // 100
+        bar = fill * filled_length + '-' * (bar_length - filled_length)
+        print(f'\r{extra_info} |{bar}| {percent_str}', end='', flush=True)
+
+    def swupdate_realtime(message: bytes) -> None:
+        swupdate_data = json.loads(message)
+        if swupdate_data["type"] == "progress" and not swupdate_data["dry_run"]:
+            percent = swupdate_data["data"]["cur_percent"]
+            print_progress_bar(percent, f"Stage {swupdate_data['data']['cur_step']}:")
+            if percent >= 100:
+                click.echo()  # finish with a clean newline
+        elif swupdate_data["type"] == "daemon_status":
+            click.echo(swupdate_data["data"]["message"])
+
     """Perform software update."""
-    client.query(
-        topics.dev.swupdate, {"filepath": str(filename.absolute()), "reboot": True, "dryrun": True}, exiting_print_message
-    )
+    client.register_trivial_handler(f"{topics.dev.swupdate}.rt", swupdate_realtime)
+    client.query(topics.dev.swupdate, {"filepath": str(filename.absolute())}, exiting_print_message)
 
 
 @cli.group()
