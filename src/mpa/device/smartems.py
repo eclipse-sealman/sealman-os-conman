@@ -31,6 +31,7 @@ import toml
 
 # Local imports
 import mpa.communication.topics as topics
+import mpa.swupdate.mgmtd_swupdate as mgmtd_swupdate
 from mpa.common.common import RESPONSE_FAILURE
 from mpa.common.common import RESPONSE_OK
 from mpa.communication.common import expect_empty_message
@@ -51,9 +52,8 @@ from mpa.config.configfiles import ConfigFiles
 from mpa.device.common import DEVICE_SET_CONFIG_LOCK, PROXY_CONFIG_FILE, SWUpdateScript
 from mpa.device.device_config import SetConfig
 from mpa.device.tpm import get_data_from_tpm_module
-from mpa.device.firmware import run_swupdate
 from mpa.device.timer import update_timer
-from mpa.device.common import get_serial_number, reboot_device
+from mpa.device.common import get_serial_number
 
 logger = Logger(f"{sys.argv[0] if __name__ == '__main__' else __name__}")
 
@@ -367,9 +367,8 @@ WantedBy=timers.target
         if with_gui_support:
             self.__update_transaction_on_disk("requested_gui_support", "TRUE")
         try:
-            run_swupdate(update_file_path)
+            mgmtd_swupdate.full_update_with_reboot(update_file_path)
             self._client.send("smart_ems.rt", "New firmware installed, the device will reboot soon")
-            reboot_device(b"")  # runs in a different thread after 5 seconds
             # we want to be sure python exits with statement and releases lock
             # sys.exit will wait for other threads to finish, so we will exit the
             # with statement first and release lock and after that reboot will happen
