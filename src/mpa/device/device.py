@@ -652,6 +652,28 @@ def user_list(client: Client) -> None:
     client.query(topics.dev.manage_user, {"action": SHOW_USERS}, exiting_print_message)
 
 
+@user.group()
+def password_complexity() -> None:
+    """Manage password complexity enforcement."""
+
+
+@password_complexity.command_with_client("set")
+@click.option("-c", "--complexity", type=click.Choice(["on", "off"]), required=True)
+def password_complexity_set(client: Client, complexity: str) -> None:
+    """Enable or disable password complexity enforcement."""
+    client.query(
+        topics.dev.user.password_complexity.set_config,
+        {"password_complexity": {"enforce_password_complexity": complexity}},
+        exiting_print_message
+    )
+
+
+@password_complexity.command_with_client("show")
+def password_complexity_show(client: Client) -> None:
+    """Show current password complexity enforcement."""
+    client.query(topics.dev.user.password_complexity.get_config, handler=exiting_print_message)
+
+
 @cli.command_with_client(timeout_ms=60_000)
 @click.argument("name")
 def hostname(client: Client, name: str) -> None:

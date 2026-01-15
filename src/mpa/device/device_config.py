@@ -53,6 +53,7 @@ set_config_handlers = {
     "sshconfig": topics.dev.ssh.set_config,
     "motd": topics.dev.motd.set_config,
     "issue": topics.dev.issue.set_config,
+    "password_complexity": topics.dev.user.password_complexity.set_config,
     "user_password_hashes": topics.dev.user.password_hash.set_config,
     "static_routing": topics.net.routing.set_config,
     "local_console": topics.dev.local_console.set_config,
