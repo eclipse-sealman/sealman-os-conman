@@ -105,6 +105,7 @@ SSH_AUTH_CONFIG = config_files.add("ssh_auth_config", "ssh/mgmtd/auth_config")
 SSH_MAXSESSIONS = config_files.add("ssh_maxsessions", "ssh/mgmtd/maxsessions")
 SSH_MAXSTARTUPS = config_files.add("ssh_maxstartups", "ssh/mgmtd/maxstartups")
 PASSWD_FILE = config_files.add("passwd", "passwd")
+LIBPAM_CONF = config_files.add("common-password", "pam.d/common-password")
 CERT_STORE_PATH = config_files.add("ca-certificates_dir", "ca-certificates/", config_dir_root=Path("/usr/local/share/"))
 LOGIN_TIMEOUT_CONFIG_FILE = config_files.add("tmout.sh", "eg/tmout.sh", is_expected=False)
 config_files.add("eg_config_dir", "eg/")
@@ -248,6 +249,7 @@ def get_config_step_init(*, with_privates: bool) -> com_client.RespondingHandler
                     get_config_data.config.update(serial_read())
                 get_config_data.config.update(logrotate_get_config())
                 get_config_data.config.update(get_ssh_config())
+                get_config_data.config.update(get_password_complexity_config())
                 get_config_data.config.update(proxy_config_read())
                 get_config_data.config.update(motd_get_config())
                 get_config_data.config.update(issue_get_config())
@@ -510,6 +512,73 @@ def remap_ssh_config(config: Dict[str, str]) -> Dict[str, str]:
             except KeyError:
                 raise InvalidPayloadError(f"Key '{key}' has invalid value '{value}' --- allowed is 'on' or 'off' or ''")
     return config
+
+
+def password_complexity(message: bytes) -> None:
+    try:
+        value = json.loads(message)
+    except Exception:
+        value = message.decode("utf-8")
+
+    if isinstance(value, dict):
+        value = value.get("enforce_password_complexity", "")
+
+    with open(LIBPAM_CONF, "r") as file:
+        config = file.readlines()
+
+    line_number = None
+    for idx, line in enumerate(config):
+        if "pwquality" in line:
+            line_number = idx
+            break
+    if line_number is None:
+        raise RuntimeError("libpwquality is not installed in /etc/pam.d/common-password")
+
+    if value in ("on", "yes"):
+        if config[line_number].lstrip().startswith("#"):
+            hash_index = config[line_number].find("#")
+            config[line_number] = config[line_number][:hash_index] + config[line_number][hash_index + 1:]
+            logger.info("changed complexity to ON")
+    elif value in ("off", "no"):
+        if not config[line_number].lstrip().startswith("#"):
+            config[line_number] = "#" + config[line_number]
+            logger.info("changed complexity to OFF")
+
+    with open(LIBPAM_CONF, "w") as file:
+        file.writelines(config)
+
+
+def is_passwd_complexity_enforced() -> bool:
+    with open(LIBPAM_CONF, "r") as file:
+        config = file.readlines()
+
+    line_number = None
+    for idx, line in enumerate(config):
+        if "pwquality" in line:
+            line_number = idx
+            break
+    if line_number is None:
+        raise RuntimeError("libpwquality is not installed in /etc/pam.d/common-password")
+    return bool(not config[line_number].lstrip().startswith("#"))
+
+
+def get_password_complexity(message: bytes) -> Dict[str, Any]:
+    expect_empty_message(message, "get_password_complexity()")
+    if is_passwd_complexity_enforced():
+        return {"enforce_password_complexity": "on"}
+    return {"enforce_password_complexity": "off"}
+
+
+def get_password_complexity_config() -> Dict[str, Dict[str, str]]:
+    if is_passwd_complexity_enforced():
+        return {"password_complexity": {"enforce_password_complexity": "on"}}
+    return {"password_complexity": {"enforce_password_complexity": "off"}}
+
+
+def set_password_complexity_config(message: bytes) -> None:
+    config = get_dict(json.loads(message), "password_complexity")
+    value = get_str_with_default(config, "enforce_password_complexity", default="")
+    password_complexity(value.encode("utf-8"))
 
 
 def set_ssh_config(message: bytes) -> None:
@@ -1061,6 +1130,9 @@ def main() -> None:
     messages[topics.dev.ssh.list_keys] = guarded(sync(list_ssh_keys))
     messages[topics.dev.ssh.add_key] = guarded(sync(add_ssh_key))
     messages[topics.dev.ssh.remove_key] = guarded(sync(remove_ssh_key))
+    messages[topics.dev.user.password_complexity.set] = guarded(sync(password_complexity))
+    messages[topics.dev.user.password_complexity.get_config] = guarded(sync(get_password_complexity))
+    messages[topics.dev.user.password_complexity.set_config] = guarded(sync(set_password_complexity_config))
     messages[topics.dev.install_localcert] = guarded(sync(install_localcert))
     messages[topics.dev.proxy.add] = guarded(sync(add_proxy))
     messages[topics.dev.proxy.delete] = guarded(sync(del_proxy))

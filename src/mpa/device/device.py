@@ -934,6 +934,24 @@ def ssh_maxstartups(client: Client, startups: int) -> None:
 
 
 @cli.group()
+def password_complexity() -> None:
+    """Manage password complexity enforcement."""
+
+
+@password_complexity.command_with_client("set")
+@click.option("-c", "--complexity", type=click.Choice(["on", "off"]), required=True)
+def password_complexity_set(client: Client, complexity: str) -> None:
+    """Enable or disable password complexity enforcement."""
+    client.query(topics.dev.user.password_complexity.set, complexity, exiting_print_message)
+
+
+@password_complexity.command_with_client("show")
+def password_complexity_show(client: Client) -> None:
+    """Show current password complexity enforcement."""
+    client.query(topics.dev.user.password_complexity.get_config, handler=exiting_print_message)
+
+
+@cli.group()
 def proxy() -> None:
     """Set http/https proxy on system level (for logged in users shells and for docker)."""
 
