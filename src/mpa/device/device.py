@@ -287,7 +287,7 @@ def azure_set_string(client: Client, connection_string: str) -> None:
     client.query(topics.azure.set_connection_string, connection_string, exiting_print_message)
 
 
-@cli.command_with_client("set-dps-tpm", timeout_ms=60_000)
+@azure.command_with_client("set-dps-tpm", timeout_ms=60_000)
 @click.option("-i", "--id-scope", required=True)
 @click.option("-r", "--registration-id", required=True)
 def azure_set_dps_tpm(client: Client, id_scope: str, registration_id: str) -> None:
