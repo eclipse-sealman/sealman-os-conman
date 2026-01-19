@@ -24,6 +24,7 @@ class azure:
     remove_cert = "azure.remove_cert"
     set_connection_string = "azure.set_connection_string"
     clean_keys = "azure.clean_keys"
+    decommission = "azure.decommission"
 
 
 class dev:

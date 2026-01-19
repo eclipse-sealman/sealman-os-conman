@@ -346,6 +346,22 @@ def azure_set_certificate(client: Client, trust_bundle_cert: Path, device_ca_cer
     client.query(topics.azure.set_cert, data, exiting_print_message)
 
 
+@azure.command_with_client("decommission", timeout_ms=60_000)
+def azure_decommission(client: Client) -> None:
+    """Reset Azure IoT Edge Deployment locally on device.
+
+    Resets configuration, deletes keys/certificates and stops IoT Edge.
+    """
+    if click.confirm(
+        "This operation will clear all iotedge configuration and is not revertible "
+        "--- you will need to re-provision this device from scratch. Are you sure you want to proceed?"
+    ):
+        client.query(topics.azure.decommission, handler=exiting_print_message)
+    else:
+        click.echo("Aborting as requsted")
+        sys.exit(0)
+
+
 @azure.group("configfile")
 def azure_configfile() -> None:
     """Manage Azure IoT Edge config.
