@@ -485,6 +485,11 @@ class Azure:
         logger.info("Azure IoT system restarted.")
         return f"{RESPONSE_OK} Removed empty key files (if any) and restarted IoT Edge."
 
+    def decommission(self, message: bytes) -> str:
+        expect_empty_message(message, "Azure.decommission()")
+        run_command("pkexec /usr/sbin/eg_iotedge_decommission")
+        return RESPONSE_OK
+
     def set_configfile(self, message: bytes) -> Optional[str]:
         self.AZURE_CONFIG_FILE_VALIDATED.touch()
         return self.__set_config_entries(message, remove_entries_not_present_in_incoming_config=True)

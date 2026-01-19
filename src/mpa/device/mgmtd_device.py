@@ -1024,6 +1024,7 @@ def main() -> None:
     in_bg(topics.azure.remove_cert, guarded(azure.remove_cert))
     in_bg(topics.azure.set_connection_string, guarded(azure.set_connection_string))
     in_bg(topics.azure.clean_keys, guarded(azure.clean_keys))
+    in_bg(topics.azure.decommission, guarded(azure.decommission))
     in_bg(topics.dev.tpm.get_config, guarded(tpm_get))
     messages[topics.dev.get_config] = guarded(get_config_step_init(with_privates=False))
     messages[topics.dev.reboot] = guarded(sync(reboot_device))
