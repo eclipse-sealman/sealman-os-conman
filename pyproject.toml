@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "mpa"
 description = 'MPA library, daemons and CLI.'
 requires-python = ">= 3.12"
-version = "1.9.2rc1"
+version = "1.9.2rc2"
 # readme = "README.md"
 dependencies = [
   "argcomplete == 1.12.1",
