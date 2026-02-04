@@ -8,6 +8,7 @@
 // https://www.apache.org/licenses/LICENSE-2.0
 //
 // SPDX-License-Identifier: Apache-2.0
+
 package main
 
 import (
@@ -33,7 +34,7 @@ func show() UserPasswordHashes {
 
 	hashes := make(map[string]string)
 	for _, shadowEntry := range shadowEntries {
-		if ok, _ := accounts.UserInDevadminDevreadGid(shadowEntry.Name); ok {
+		if _, err := accounts.LookupManagedUserByNameFromSystem(shadowEntry.Name); err == nil {
 			hashes[shadowEntry.Name] = shadowEntry.Hash
 		}
 	}
@@ -45,13 +46,9 @@ func setConfig(r UserPasswordHashes) {
 	var chpasswdInput strings.Builder
 
 	for username, hash := range r.Hashes {
-		ok, err := accounts.UserInDevadminDevreadGid(username)
+		_, err := accounts.LookupManagedUserByNameFromSystem(username)
 		if err != nil {
 			panic(err)
-		}
-
-		if !ok {
-			panic(fmt.Errorf("cannot change password of %v", username))
 		}
 
 		if strings.Contains(hash, "\n") {

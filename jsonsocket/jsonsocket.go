@@ -9,6 +9,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 //
+
 // Package jsonsocket provides a simple, synchronous JSON-over-TCP
 // request/response framework.
 //
