@@ -77,7 +77,6 @@ from mpa.device.common import MOTD_FILE
 from mpa.device.common import ISSUE_FILE
 from mpa.config.configfiles import ConfigFiles
 from mpa.device.common import CaseSensitiveConfigParser
-from mpa.device.common import send_and_wait_for_response_on_socket
 from mpa.device.common import get_serial_number, reboot_device
 from mpa.device.common import KERNEL_SOCKET_PATH, SHADOW_SOCKET_PATH, SSH_SOCKET_PATH
 from mpa.device.common import get_serial_devices
@@ -871,12 +870,11 @@ def overcommit_memory_set(message: bytes) -> None:
         case _:
             raise NotImplementedError
 
+    send_to_go_daemon(KERNEL_SOCKET_PATH, "write", data)
+
     parser = ConfctlParser(SYSCTL_CONF)
     parser["vm.overcommit_memory"] = data["flag"]
     parser.write()
-
-    message = bytearray(json.dumps(data), encoding="utf-8")
-    send_and_wait_for_response_on_socket(message, str(KERNEL_SOCKET_PATH))
 
 
 @empty_message_wrapper
