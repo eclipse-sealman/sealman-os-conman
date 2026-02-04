@@ -43,7 +43,7 @@ from mpa.communication.common import (
     expect_empty_message,
 )
 from mpa.communication.inter_process_lock import InterProcessLock
-from mpa.communication.message_parser import get_dict, get_str
+from mpa.communication.message_parser import get_str
 from mpa.communication.process import run_command, run_command_unchecked
 from mpa.communication.status_codes import DEVADMIN_GID, DEVREAD_GID
 from mpa.config.common import CONFIG_DIR_ROOT
@@ -83,8 +83,8 @@ class SshAction(str, Enum):
     ADD = "add"
     SHOW = "show"
     REMOVE = "remove"
-    GET_ALL = "getAll"
-    SET_ALL = "setAll"
+    GET_ALL = "get_all"
+    SET_ALL = "set_all"
 
 
 SOCKET_RETURN_TYPE = Dict[str, Any]
@@ -388,13 +388,6 @@ def parse_response_from_socket(response: bytes) -> SOCKET_RETURN_TYPE:
         raise exc
     else:
         raise RuntimeError(f"Recevied unkown status: {status}")
-
-
-def check_if_admin_has_public_ssh_key() -> bool:
-    payload = {"username": "admin", "action": SshAction.SHOW}
-    message = bytearray(json.dumps(payload), encoding="UTF-8")
-    ssh_keys = get_dict(send_and_wait_for_response_on_socket(message), "keys")
-    return bool(len(ssh_keys["admin"]))
 
 
 def get_serial_devices() -> Mapping[str, str]:

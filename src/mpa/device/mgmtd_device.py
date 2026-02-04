@@ -33,8 +33,7 @@ from typing import Any, Dict, List, Mapping, MutableMapping, Optional, Tuple, Un
 # Local imports
 import mpa.communication.topics as topics
 import mpa.device.date_time as date_time
-from mpa.common.common import RESPONSE_OK
-from mpa.common.common import RESPONSE_FAILURE
+from mpa.common.common import RESPONSE_FAILURE, RESPONSE_OK
 from mpa.common.common import empty_message_wrapper
 from mpa.communication import client as com_client
 from mpa.communication.client import background
@@ -79,9 +78,8 @@ from mpa.device.common import ISSUE_FILE
 from mpa.config.configfiles import ConfigFiles
 from mpa.device.common import CaseSensitiveConfigParser
 from mpa.device.common import send_and_wait_for_response_on_socket
-from mpa.device.common import check_if_admin_has_public_ssh_key
 from mpa.device.common import get_serial_number, reboot_device
-from mpa.device.common import KERNEL_SOCKET_PATH, SHADOW_SOCKET_PATH
+from mpa.device.common import KERNEL_SOCKET_PATH, SHADOW_SOCKET_PATH, SSH_SOCKET_PATH
 from mpa.device.common import get_serial_devices
 from mpa.device.common import LOGIND_CONF
 from mpa.device.common import LOGIND_DEFAULT_NAUTOVTS
@@ -162,6 +160,13 @@ class GetConfigData:
 
 get_config_data = GetConfigData()
 serial_devices = get_serial_devices()
+
+
+def check_if_admin_has_public_ssh_key() -> bool:
+    resp = send_to_go_daemon(SSH_SOCKET_PATH, SshAction.SHOW, {"username": "admin"})
+    assert resp is not None
+    ssh_keys = get_dict(resp, "keys")
+    return bool(len(ssh_keys["admin"]))
 
 
 def tpm_get(message: bytes) -> Mapping[str, Any]:
@@ -571,9 +576,9 @@ def set_ssh_config(message: bytes) -> None:
 
     if "publickeys" in incoming_config:
         public_keys = get_dict(incoming_config, "publickeys")
-        data = {"action": SshAction.SET_ALL, "data": public_keys}
-        message = bytearray(json.dumps(data), encoding="UTF-8")
-        user_status = get_dict(send_and_wait_for_response_on_socket(message), "user_status")
+        resp = send_to_go_daemon(SSH_SOCKET_PATH, SshAction.SET_ALL, {"data": public_keys})
+        assert resp is not None
+        user_status = get_dict(resp, "user_status")
 
     enforced_password_auth_enabling = False
     if config["key_auth"] == "yes" and config["password_auth"] == "no" and not check_if_admin_has_public_ssh_key():
@@ -620,11 +625,11 @@ def get_ssh_config(return_remapped: bool = True) -> Dict[str, Dict[str, Any]]:
         else:
             logger.warn(f"Unknow value {line} in {SSH_AUTH_CONFIG}")
     new_config: Dict[str, Any] = remap_ssh_config(config) if return_remapped else config
-    data = {"action": SshAction.GET_ALL}
-    message = bytearray(json.dumps(data), encoding="UTF-8")
-    response = send_and_wait_for_response_on_socket(message)
-    config["publickeys"] = get_dict(response, "keys")
-    u_s = get_dict(response, "user_status")
+    resp = send_to_go_daemon(SSH_SOCKET_PATH, SshAction.GET_ALL)
+    assert resp is not None
+
+    config["publickeys"] = get_dict(resp, "keys")
+    u_s = get_dict(resp, "user_status")
     new_config["unreadable_users"] = {u: s[len(RESPONSE_FAILURE):] for (u, s) in u_s.items() if s.startswith(RESPONSE_FAILURE)}
 
     new_config["maxsessions"] = int(SSH_MAXSESSIONS.read_text().split()[1])
@@ -642,9 +647,9 @@ def ssh_config_show(message: bytes) -> Dict[str, Dict[str, Any]]:
 
 def list_ssh_keys(message: bytes) -> Dict[str, Any]:
     ssh_keys = json.loads(message)
-    ssh_keys["action"] = SshAction.SHOW
-    message = bytearray(json.dumps(ssh_keys), encoding="UTF-8")
-    return get_dict(send_and_wait_for_response_on_socket(message), "keys")
+    resp = send_to_go_daemon(SSH_SOCKET_PATH, SshAction.SHOW, ssh_keys)
+    assert resp is not None
+    return get_dict(resp, "keys")
 
 
 def add_ssh_key(message: bytes) -> None:
@@ -652,22 +657,20 @@ def add_ssh_key(message: bytes) -> None:
     username = get_str(ssh_keys, 'username')
     primary_group = get_user_primary_group(username)
     if primary_group not in SSH_KEY_ALLOWED_PRIMARY_GROUPS:
-        raise InvalidPreconditionError(f"You can not modyify keys for user {username}")
-    ssh_keys["action"] = SshAction.ADD
-    message = bytearray(json.dumps(ssh_keys), encoding="UTF-8")
-    send_and_wait_for_response_on_socket(message)
+        raise InvalidPreconditionError(f"You can not modify keys for user {username}")
+
+    send_to_go_daemon(SSH_SOCKET_PATH, SshAction.ADD, ssh_keys)
 
 
 def remove_ssh_key(message: bytes) -> None:
     ssh_keys = json.loads(message)
     username = get_str(ssh_keys, 'username')
     primary_group = get_user_primary_group(username)
-    if primary_group in SSH_KEY_ALLOWED_PRIMARY_GROUPS:
-        raise InvalidPreconditionError(f"You can not modyify keys for user {username}")
-    ssh_keys["action"] = SshAction.REMOVE
-    ssh_keys["index"] = get_int(ssh_keys, 'index')
-    message = bytearray(json.dumps(ssh_keys), encoding="UTF-8")
-    send_and_wait_for_response_on_socket(message)
+    if primary_group not in SSH_KEY_ALLOWED_PRIMARY_GROUPS:
+        raise InvalidPreconditionError(f"You can not modify keys for user {username}")
+
+    idx = get_int(ssh_keys, 'index')
+    send_to_go_daemon(SSH_SOCKET_PATH, SshAction.REMOVE, {"username": username, "idx": idx})
 
 
 def install_localcert(message: bytes) -> None:
