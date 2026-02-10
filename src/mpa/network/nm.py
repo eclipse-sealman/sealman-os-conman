@@ -14,13 +14,14 @@
 import json
 import sys
 from pathlib import Path
-from typing import Optional, List, Union
+from typing import Any, Optional, List, Union
 
 # Third party imports
 import click
 
 # Local imports
 import mpa.communication.topics as topics
+from mpa.communication.message_parser import get_dict, get_optional_dict, get_optional_str
 from .common import SCOPES, TYPES, DEFAULT_VLAN_METRIC
 from mpa.common.cli import (
     custom_group,
@@ -209,9 +210,8 @@ def cellular_checklist(client: Client) -> None:
 def wifi() -> None:
     """Manage wifi interface.
 
-    Manages wifi1 interface. Currently supported implementation is WiFi-Client
-    role, which allows user to configure new connection, enable or disable it
-    and scan for available networks.
+    Manages wifi1 interface. Supported modes are WiFi-Client role and
+    Access Point (AP) role.
 
     Examples:
     *** client config --ssid SSID --key KEY --authentication wpa3-sae
@@ -220,6 +220,10 @@ def wifi() -> None:
     *** client enable --- enable and connect connection profile on wifi1 interface
     *** client disable --- disable and disconnect connection profile on wifi1 interface
     *** client scan --- scan for available wifi networks
+    *** ap config --ssid MyAP --key mypassword --channel 11 --hidden
+    --- configure and activate AP with custom settings
+    *** ap enable --- enable AP mode with default settings on wifi1
+    *** ap disable --- disable AP mode on wifi1
     """
 
 
@@ -261,8 +265,84 @@ def wifi_client_disable(client: Client) -> None:
               help="Encryption mode CCMP and/or TKIP for WPA / WPA2.")
 def wifi_client_config(client: Client, ssid: str, key: str, authentication: str, encryption: list[str]) -> None:
     """Add and activate a new connection profile using the given details."""
-    request = {"wifi1": {"ssid": ssid, "key": key, "authentication": authentication, "encryption": encryption}}
+    request = {"wifi1": {"client": {"ssid": ssid, "key": key, "authentication": authentication, "encryption": encryption}, "is_enabled": True}}
     client.query(topics.net.wifi.client.set_config, request, handler=exiting_print_message)
+
+
+@wifi.group()
+def ap() -> None:
+    """Manage wifi interface in access point role."""
+
+
+@ap.command_with_client("enable", timeout_ms=60_000)
+def wifi_ap_enable(client: Client) -> None:
+    """Enable AP mode on wifi1 using saved or default settings."""
+    client.query(topics.net.wifi.ap.set_config, {"wifi1": {"ap": {}}}, handler=exiting_print_message)
+
+
+@ap.command_with_client("disable")
+def wifi_ap_disable(client: Client) -> None:
+    """Disable AP mode on wifi1."""
+    client.query(topics.net.wifi.ap.change_state, "disable", handler=exiting_print_message)
+
+
+@ap.command_with_client("show")
+def wifi_ap_show(client: Client) -> None:
+    """Show AP configuration."""
+    def handler(message: Union[bytes, str]) -> None:
+        config = json.loads(message)
+        network = get_dict(config, "network")
+        wifi1 = get_dict(network, "wifi1")
+        ap = get_optional_dict(wifi1, "ap")
+        click.echo(json.dumps(ap, indent=2))
+        sys.exit(0)
+    client.query(topics.net.get_config, handler=handler)
+
+
+@ap.command_with_client("status")
+def wifi_ap_status(client: Client) -> None:
+    """Show AP status."""
+    def handler(message: Union[bytes, str]) -> None:
+        config = json.loads(message)
+        network = get_dict(config, "network")
+        wifi = get_dict(network, "wifi1")
+        result = {
+            "mode": get_optional_str(wifi, "mode"),
+            "state": get_optional_str(wifi, "state"),
+            "current_ip": get_optional_str(wifi, "current_ip"),
+            "current_subnet": get_optional_str(wifi, "current_subnet"),
+        }
+        click.echo(json.dumps(result, indent=2))
+        sys.exit(0)
+    client.query(topics.net.get_config, handler=handler)
+
+
+@ap.command_with_client("config", timeout_ms=60_000)
+@click.option("-s", "--ssid", default="EdgeGateway", show_default=True, help="SSID for the access point.")
+@click.option("-k", "--key", default="ap-password", help="PSK for the access point.")
+@click.option("-a", "--authentication", type=click.Choice(["wpa-psk", "wpa2-psk", "wpa3-sae"]),
+              default="wpa2-psk", show_default=True, help="Authentication method.")
+@click.option("-e", "--encryption", default=["ccmp"], show_default=True, multiple=True,
+              type=click.Choice(["auto", "ccmp", "tkip"]),
+              help="Encryption mode CCMP and/or TKIP.")
+@click.option("-c", "--channel", type=int, default=6, show_default=True, help="WiFi channel (1-13).")
+@click.option("--hidden/--no-hidden", default=False, show_default=True, help="Hide SSID in beacons.")
+def wifi_ap_config(client: Client, ssid: str, key: str, authentication: str,
+                   encryption: list[str], channel: int, hidden: bool) -> None:
+    """Configure and activate AP mode with custom settings on wifi1."""
+    request: dict[str, Any] = {
+        "wifi1": {
+            "ap": {
+                "ssid": ssid,
+                "key": key,
+                "authentication": authentication,
+                "encryption": list(encryption),
+                "channel": channel,
+                "hidden": hidden,
+            }
+        }
+    }
+    client.query(topics.net.wifi.ap.set_config, request, handler=exiting_print_message)
 
 
 @cli.command_with_client()

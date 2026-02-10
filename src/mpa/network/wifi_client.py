@@ -29,7 +29,7 @@ from mpa.communication.common import (
     NetworkManagerError,
     NMDeviceActivationError
 )
-from mpa.communication.message_parser import get_str, get_enum_str, get_enum_str_list
+from mpa.communication.message_parser import get_bool, get_str, get_enum_str, get_enum_str_list, get_dict
 from mpa.network.wifi_common import (
     ConnectionCbInfo,
     create_wifi_connection,
@@ -261,7 +261,11 @@ def wifi_client_scan(nmc: NM.Client, rescan: str) -> Dict[Any, defaultdict[str, 
 def wifi_client_set_config(nmc: NM.Client, network_config: Dict[str, Any]) -> str:
     response: Union[str, Exception] = ""
     ifname = next(iter(network_config.keys()))
-    config = network_config[ifname]
+    connection_name = f'{ifname}-client'
+    iface_config = get_dict(network_config, ifname)
+    config = get_dict(iface_config, 'client')
+    is_enabled = get_bool(iface_config, 'is_enabled')
+    logger.info(f'wifi_client {config=}')
     ssid = get_str(config, 'ssid')
     key = get_str(config, 'key')
     authentication = get_enum_str(config, 'authentication', ['auto', 'wpa-psk', 'wpa2-psk', 'wpa3-sae'])
@@ -281,7 +285,7 @@ def wifi_client_set_config(nmc: NM.Client, network_config: Dict[str, Any]) -> st
     available_connections = wifi.get_available_connections()
     connection = None
     if available_connections:
-        required_connections = [c for c in available_connections if c.get_id() == ifname]
+        required_connections = [c for c in available_connections if c.get_id() == connection_name]
         if len(required_connections) == 1:
             connection = required_connections[0]
         elif len(required_connections) != 0:
@@ -326,18 +330,36 @@ def wifi_client_set_config(nmc: NM.Client, network_config: Dict[str, Any]) -> st
             response = NetworkManagerError(error.message)
             event.set()
 
+    def add_cb(client: NM.Client, result: Gio.AsyncResult, optional: NM.RemoteConnection) -> None:
+        try:
+            remote_connection = client.add_connection_finish(result)
+        except GLib.Error as error:
+            nonlocal response
+            response = NetworkManagerError(error.message)
+        finally:
+            event.set()
+            loop.quit()
+
+
     def add_and_activate_connection() -> None:
-        connection = create_wifi_connection(ifname, ssid, key, authentication, encryption)
+        connection = create_wifi_connection(connection_name, ifname, ssid, key, authentication, encryption, is_enabled)
         dbus_path = None
         if authentication == 'auto':
             # this is for determining access point's parameters to fill up missing connection settings
             dbus_path = get_access_point_dbus_path(wifi, ssid)
-        nmc.add_and_activate_connection_async(connection,
-                                              wifi,
-                                              dbus_path,
-                                              None,
-                                              add_and_activate_cb,
-                                              None)
+        if not is_enabled:
+            nmc.add_connection_async(connection,
+                                                True,
+                                                None,
+                                                add_cb,
+                                                None)
+        else:
+            nmc.add_and_activate_connection_async(connection,
+                                                wifi,
+                                                dbus_path,
+                                                None,
+                                                add_and_activate_cb,
+                                                None)
 
     def delete_cb(connection: NM.RemoteConnection, result: Gio.AsyncResult,
                   connection_cb_info: ConnectionCbInfo) -> None:

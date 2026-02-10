@@ -190,6 +190,10 @@ class net:
             set_config = "net.wifi.client.set_config"
             change_state = "net.wifi.client.change_state"
 
+        class ap:
+            set_config = "net.wifi.ap.set_config"
+            change_state = "net.wifi.ap.change_state"
+
     class ovpn:
         add_tunnel = "net.ovpn.add_tunnel"
         remove_tunnel = "net.ovpn.remove_tunnel"
