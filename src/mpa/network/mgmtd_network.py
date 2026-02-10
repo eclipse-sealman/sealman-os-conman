@@ -23,6 +23,7 @@ import json
 import re
 import sys
 from collections import defaultdict
+from functools import partial
 from typing import Any, Callable, Dict, List, Mapping, MutableMapping, Optional, Set, Tuple, Union
 
 # Third party imports
@@ -71,7 +72,11 @@ from mpa.network.management import (
     is_dhcp,
 )
 from mpa.network.wifi_client import wifi_client_scan, wifi_client_set_config
-from mpa.network.wifi_common import get_wifi_config, get_wifi_interfaces, wifi_change_state
+from mpa.network.wifi_daemon_client import daemon_ap_set_config, daemon_ap_enable, daemon_ap_disable
+from mpa.network.wifi_common import (
+    get_wifi_config, get_wifi_interfaces, wifi_change_state,
+    save_wifi_config,
+)
 
 gi.require_version(
     "NM", "1.0"
@@ -104,7 +109,7 @@ ALLOWED_INTERFACES = get_lan_interfaces() | get_wifi_interfaces() | {"cellular1"
 LAN_INTERFACES = get_lan_interfaces()
 NET_WIFI_CLIENT_SCAN_LOCK = InterProcessLock(CONFIG_DIR_ROOT / "mgmtd/net.wifi.client.scan.lock", stale_lock_seconds=600)
 NET_WIFI_CLIENT_STATE_LOCK = InterProcessLock(CONFIG_DIR_ROOT / "mgmtd/net.wifi.client.state.lock", stale_lock_seconds=600)
-NET_WIFI_CLIENT_SET_CONFIG = "net_wifi_client_set_config"
+NET_WIFI_SET_CONFIG = "net_wifi_set_config"
 
 _parser = argparse.ArgumentParser(prog='Network config daemon')
 com_client.add_command_line_params(_parser)
@@ -298,7 +303,7 @@ def net_set_config(message: bytes) -> None:
     For interface_config of "CELLULAR" look into net.cellular.set_config
     (net_cellular_set_config) documentation.
     For interface_config of "WIFI" look into net.wifi.client.set_config
-    (net_wifi_client_set_config) documentation.
+    (net_wifi_set_config) documentation.
     """
     # TODO this shall be probably transaction with ability to roll back partiall
     payload = json.loads(message)
@@ -328,7 +333,15 @@ def net_set_config(message: bytes) -> None:
                     config["interface"] = interface_number  # add "interface" to config if not present
                 net_cellular_set_config(config=config)
             elif interface.startswith("wifi"):
-                net_wifi_client_set_config(config={interface: config})
+                save_wifi_config(config)
+                is_enabled = get_bool(config, 'is_enabled')
+                mode = get_enum_str(config, 'mode', ['ap', 'client'])
+                for target in ["ap", "client"]:
+                    target_is_enabled = mode == target and is_enabled
+                    target_config = {"is_enabled": target_is_enabled}
+                    target_data = get_optional_dict(config, target)
+                    target_config[target] = target_data
+                    net_wifi_set_config(target, config={interface: target_config})
             else:
                 if config is None:
                     continue
@@ -611,7 +624,7 @@ def net_wifi_client_scan(message: bytes) -> Dict[Any, defaultdict[str, List[Dict
         return wifi_client_scan(_nmc, rescan)
 
 
-def net_wifi_client_set_config(message: Optional[bytes] = None,
+def net_wifi_set_config(mode: str, message: Optional[bytes] = None,
                                *, config: Optional[Dict[str, Any]] = None) -> str:
     """
     Handles "net.wifi.client.set_config.req" and sets wifi network config.
@@ -663,22 +676,30 @@ def net_wifi_client_set_config(message: Optional[bytes] = None,
     # and thus we want to prevent the possibility of changing
     # its state (enable/disable)
     with NET_WIFI_CLIENT_STATE_LOCK.transaction("Global lock for setting new wifi connection profile"):
-        logger.info(NET_WIFI_CLIENT_SET_CONFIG)
+        logger.info(NET_WIFI_SET_CONFIG)
         # Programming errors shall not happen, so raised as RuntimeError:
         if message is None and config is None:
             raise RuntimeError(
-                f"Either message or config needs to be provided to {NET_WIFI_CLIENT_SET_CONFIG}, but none were given"
+                f"Either message or config needs to be provided to {NET_WIFI_SET_CONFIG}, but none were given"
             )
         elif message is not None and config is not None:
             raise RuntimeError(
-                f"Either message or config needs to be provided to {NET_WIFI_CLIENT_SET_CONFIG}, but both were given"
+                f"Either message or config needs to be provided to {NET_WIFI_SET_CONFIG}, but both were given"
             )
         elif config is None and message is not None:
             config = json.loads(message)
         else:
             pass
 
-        return wifi_client_set_config(_nmc, config)  # type: ignore  # mypy wrongly recognize config type
+        match mode:
+            case 'ap':
+                logger.info(f'{config=}')
+                return daemon_ap_set_config(config)
+            case 'client':
+                logger.info(f'{config=}')
+                return wifi_client_set_config(_nmc, config)  # type: ignore  # mypy wrongly recognize config type
+            case _:
+                raise RuntimeError(f'Invalid mode in {NET_WIFI_SET_CONFIG}')
 
 
 def net_wifi_client_change_state(message: bytes) -> str:
@@ -701,7 +722,18 @@ def net_wifi_client_change_state(message: bytes) -> str:
         logger.info('net_wifi_client_change_state')
         state = json.loads(message)
         ifname = 'wifi1'
-        return wifi_change_state(_nmc, state, ifname)
+        return wifi_change_state(_nmc, "client", state == "enable", ifname)
+
+
+def net_wifi_ap_change_state(message: bytes) -> str:
+    """Disable WiFi AP connection. Enable goes through ap.set_config."""
+    with NET_WIFI_CLIENT_STATE_LOCK.transaction("Global lock for changing state of wifi AP connection"):
+        logger.info('net_wifi_ap_change_state')
+        state = json.loads(message)
+        if state != "disable":
+            raise InvalidParameterError(f"Invalid state {state}, use ap set_config to enable")
+        daemon_ap_disable()
+        return f"{RESPONSE_OK} AP disabled on wifi1"
 
 
 def cellular_checklist(message: bytes) -> str:
@@ -865,8 +897,11 @@ def main() -> None:
     messages[topics.net.cellular.check] = guarded(sync(cellular_checklist))
     messages[topics.net.cellular.status] = guarded(sync(net_cellular_status))
     in_bg(topics.net.wifi.client.scan, guarded(net_wifi_client_scan))
-    in_bg(topics.net.wifi.client.set_config, guarded(net_wifi_client_set_config))
+    in_bg(topics.net.wifi.client.set_config, guarded(partial(net_wifi_set_config, 'client')))
     in_bg(topics.net.wifi.client.change_state, guarded(net_wifi_client_change_state))
+    in_bg(topics.net.wifi.ap.set_config, guarded(partial(net_wifi_set_config, 'ap')))
+    in_bg(topics.net.wifi.ap.change_state, guarded(net_wifi_ap_change_state))
+    messages[topics.net.cellular.check] = guarded(sync(cellular_checklist))
     messages[topics.net.promiscous_mode.set_config] = guarded(sync(promiscous_mode_set_config))
     messages[topics.net.ids.change_state] = guarded(sync(change_ids_state))
     messages[topics.net.dhcp_server.get_config] = guarded(sync(dhcp_server_get_config))

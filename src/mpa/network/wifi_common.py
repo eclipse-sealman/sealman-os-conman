@@ -16,6 +16,7 @@ Helpers for wifi network connections configuration.
 from __future__ import annotations
 
 # Standard imports
+import json
 from dataclasses import dataclass, field
 from functools import singledispatchmethod
 from ipaddress import IPv4Network
@@ -32,6 +33,12 @@ from mpa.communication.common import (
     InvalidPreconditionError,
     NetworkManagerError
 )
+from mpa.communication.message_parser import (
+    get_optional_bool,
+    get_optional_dict,
+)
+from mpa.config.common import CONFIG_DIR_ROOT
+from mpa.network.wifi_daemon_client import daemon_ap_get_config, daemon_ap_enable, daemon_ap_disable
 
 # This ugly non-pep8 compliant importing sequence is required by gi module
 import gi  # type: ignore
@@ -41,6 +48,25 @@ gi.require_version("NM", "1.0")  # Use before import to ensure that the right ve
 from gi.repository import NM, GLib, Gio, GObject  # type: ignore # noqa: E402
 
 logger = Logger(f"{sys.argv[0] if __name__ == '__main__' else __name__}")
+
+WIFI_CONFIG_FILE = str(CONFIG_DIR_ROOT / "eg" / "wifi-config.json")
+_AP_DEFAULTS: dict[str, Any] = {
+    "ssid": "EdgeGateway",
+    "key": "ap-password",
+    "authentication": "wpa2-psk",
+    "encryption": ["ccmp"],
+    "channel": 6,
+    "hidden": False,
+}
+
+def save_wifi_config(config: MutableMapping[str, Any]) -> None:
+    """Persist wifi config to file."""
+    try:
+        with open(WIFI_CONFIG_FILE, "w") as f:
+            json.dump(dict(config), f, sort_keys=False, indent=4)
+    except OSError as e:
+        logger.error(f"Failed to save wifi config to {WIFI_CONFIG_FILE}: {e}")
+
 
 # Common strings
 NM_AP_MODE = getattr(NM, "80211Mode")
@@ -390,13 +416,14 @@ class ConnectionsManager(object):
 
 
 # create a Wifi connection and return it
-def create_wifi_connection(name: str, ssid: str, key: str, authentication: str, encryption: List[str]) -> NM.SimpleConnection:
+def create_wifi_connection(name: str, interface: str, ssid: str, key: str, authentication: str, encryption: List[str], is_enabled: bool) -> NM.SimpleConnection:
     connection = NM.SimpleConnection.new()
     setting_connection = NM.SettingConnection.new()
     setting_connection.props.id = name
+    setting_connection.props.autoconnect = is_enabled
     setting_connection.props.uuid = str(uuid.uuid4())
     setting_connection.props.type = "802-11-wireless"
-    setting_connection.props.interface_name = name
+    setting_connection.props.interface_name = interface
 
     setting_wireless = NM.SettingWireless.new()
     setting_wireless.props.mode = "infrastructure"
@@ -666,17 +693,24 @@ def delete_connection(connection: NM. RemoteConnection, connection_cb_info: Conn
 
 def get_wifi_config(nmc: NM.Client, ifname: str, config: MutableMapping[str, Any]) -> MutableMapping[str, Any]:
     logger.info('get_wifi_config')
-
+    ctx = GLib.MainContext.default()
+    while ctx.iteration(False):
+        pass
     wifi = nmc.get_device_by_iface(ifname)
     if wifi is None:
         return config
 
     active_connection = wifi.get_active_connection()
     available_connections = wifi.get_available_connections()
-    # XXX: currently there is only one connection profile for wifi1 interface
     for connection in available_connections:
-        connection_settings = {}
         setting_wireless = connection.get_setting_wireless()
+
+        # TODO: ugly hack - old client code assumed one connection per wifi device,
+        # so until we switch to GO we filter out AP connections.
+        if setting_wireless.props.mode == "ap":
+            continue
+
+        connection_settings = {}
         connection_settings['ssid'] = NM.utils_ssid_to_utf8(setting_wireless.get_ssid().get_data())
         connection_settings['bssid'] = setting_wireless.get_bssid()
         setting_wireless_security = connection.get_setting_wireless_security()
@@ -720,7 +754,6 @@ def get_wifi_config(nmc: NM.Client, ifname: str, config: MutableMapping[str, Any
         connection_settings['current_subnet'] = None
         connection_settings['current_gateway'] = None
         connection_settings['current_dns'] = None
-        connection_settings['state'] = "enabled" if connection.get_setting_connection().get_autoconnect() else "disabled"
         setting_ip4_config = connection.get_setting_ip4_config()
         if setting_ip4_config.get_method() == 'auto':
             connection_settings['dhcp'] = True
@@ -741,35 +774,61 @@ def get_wifi_config(nmc: NM.Client, ifname: str, config: MutableMapping[str, Any
         else:
             connection_settings['dhcp'] = False
 
-        config['network'][ifname] = connection_settings
+        config['network'].setdefault(ifname, {})['client'] = connection_settings
 
+    iface = config['network'].setdefault(ifname, {})
+    daemon_config = daemon_ap_get_config()
+    if daemon_config:
+        iface['ap'] = get_optional_dict(daemon_config, 'ap')
+        ap_enabled = get_optional_bool(daemon_config, 'is_enabled') or False
+    else:
+        iface['ap'] = None
+        ap_enabled = False
+
+    client_enabled = active_connection is not None and active_connection.get_id() == f"{ifname}-client"
+    if ap_enabled:
+        iface['is_enabled'] = True
+        iface['mode'] = 'ap'
+    elif client_enabled:
+        iface['is_enabled'] = True
+        iface['mode'] = 'client'
+    else:
+        iface['is_enabled'] = False
+        iface['mode'] = ''
     return config
 
 
-def wifi_change_state(nmc: NM.Client, state: str, ifname: str) -> str:
+def wifi_change_state(nmc: NM.Client, mode: str, state: str, ifname: str) -> str:
     wifi = nmc.get_device_by_iface(ifname)
     if wifi is None:
         raise InvalidParameterError(f"Device {ifname} is not available")
 
-    match state:
-        case "enable":
+    match (mode, state):
+        case ("ap", True):
+            daemon_ap_enable()
+        case ("ap", False):
+            daemon_ap_disable()
+        case ("client", True):
             logger.info('net_wifi_client_enable')
-            available_connections = wifi.get_available_connections()
-            # XXX: Currently only one connection will be available on the returned list
-            # so we do not care about proper verification
+            # XXX: ugly hack - old client code assumed one connection per wifi device,
+            # so until we switch to GO we filter out AP connections.
+            available_connections = [
+                c for c in wifi.get_available_connections()
+                if c.get_setting_wireless() and c.get_setting_wireless().props.mode != "ap"
+            ]
             if not available_connections:
                 raise InvalidPreconditionError(f"No matching connection for {ifname} interface name")
-            retval = ConnectionsManager(nmc, available_connections, state).activate_connections()
-        case "disable":
+            retval = ConnectionsManager(nmc, available_connections, "enable").activate_connections()
+        case ("client", False):
             logger.info('net_wifi_client_disable')
             # get_active_connection returns active_connection or None
-            active_connections = [wifi.get_active_connection()]
+            active_connection = wifi.get_active_connection()
             # XXX: Currently only one connection will be available on the created list
             # so we do not care about proper verification
-            if None in active_connections:
-                raise InvalidPreconditionError(f"No active connection on {ifname} interface name")
-            retval = ConnectionsManager(nmc, active_connections, state).deactivate_connections()
+            if active_connection is None or active_connection.get_id() != f"{ifname}-client":
+                raise InvalidPreconditionError(f"No active client connection on {ifname} interface name")
+            retval = ConnectionsManager(nmc, [active_connection], "disable").deactivate_connections()
         case _:
-            raise InvalidParameterError(f"Invalid state {state} parameter provided")
+            raise InvalidParameterError(f"Invalid (mode, state) {mode} {state} parameter pair provided")
 
     return retval
