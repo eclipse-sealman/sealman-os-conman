@@ -523,7 +523,7 @@ def _pwquality_state() -> tuple[list[str], int, bool]:
     raise RuntimeError("libpwquality is not installed in /etc/pam.d/common-password")
 
 
-def set_config_password_complexity(message: bytes) -> None:
+def password_complexity_set_config(message: bytes) -> None:
     config = get_dict(json.loads(message), "password_complexity")
     complexity = get_str(config, "enforce_password_complexity")
 
@@ -1098,7 +1098,7 @@ def main() -> None:
     messages[topics.dev.ssh.add_key] = guarded(sync(add_ssh_key))
     messages[topics.dev.ssh.remove_key] = guarded(sync(remove_ssh_key))
     messages[topics.dev.user.password_complexity.get_config] = guarded(sync(password_complexity_get_config))
-    messages[topics.dev.user.password_complexity.set_config] = guarded(sync(set_config_password_complexity))
+    messages[topics.dev.user.password_complexity.set_config] = guarded(sync(password_complexity_set_config))
     messages[topics.dev.install_localcert] = guarded(sync(install_localcert))
     messages[topics.dev.proxy.add] = guarded(sync(add_proxy))
     messages[topics.dev.proxy.delete] = guarded(sync(del_proxy))
