@@ -965,7 +965,7 @@ def proxy() -> None:
               help="set HTTP-Proxy to http://<SERVER>:<PORT> (e.g. http://192.168.123.254:8080 )")
 @click.option("-s", "--https", default="",
               help="set HTTPS-Proxy to https://<SERVER>:<PORT> (e.g. https://192.168.123.254:8080 )")
-@click.option("-n", "--no-reload", is_flag=True,
+@click.option("-n", "--no-reload", "--no_reload", is_flag=True,
               help="""Change configuration, but do not reload it immediately in all daemons. If you give this option
                    new proxy will be used by docker containers after next reboot of the system or next restart of
                    docker subsystem (whichever comes first). To manually enforce restart of docker execute command
@@ -1117,7 +1117,7 @@ def smartems() -> None:
 @click.option("-i", "--interval", type=click.IntRange(10), default=3600, show_default=True,
               help="Period between two checks in seconds. The minimum is 10s.")
 # With new SmartEMS the endpoint for devices with VPNCC changes, default is old endpoint.
-@click.option("--vcc-api-endpoint", is_flag=True,
+@click.option("--vcc-api-endpoint", "--vcc_api_endpoint", is_flag=True,
               help="""If present, this API endpoint will be set - /api/edgegatewayvcc/configuration. Otherwise, this one
                    will be used - /api/edgegateway/configuration. If your EdgeGateway is connected to VPN CC use this option.""")
 def smartems_config(
