@@ -399,6 +399,7 @@ def add_make_edited_name_argument(preset_edit_prefix: str = "") -> Callable[[FC]
     return click.option(
         "-E",
         "--make-edited",
+        "--make_edited",
         "make_edited",
         is_flag=True,
         help=f"""Mark saved preset as being edited one before performing other actions, giving this option is
