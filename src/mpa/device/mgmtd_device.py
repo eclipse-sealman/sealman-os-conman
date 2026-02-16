@@ -65,6 +65,7 @@ from mpa.communication.process import run_command
 from mpa.communication.process import run_command_unchecked
 from mpa.common.logger import Logger
 from mpa.common.killer_thread import KillerThread
+from mpa.communication.trivial_go_daemon_client import send_to_go_daemon
 from mpa.config.common import CONFIG_FORMAT_VERSION
 from mpa.device.azure import Azure
 from mpa.device.tpm import get_data_from_tpm_module
@@ -876,10 +877,11 @@ def overcommit_memory_set(message: bytes) -> None:
 
 
 @empty_message_wrapper
-def user_password_hash_get(message: bytes) -> Dict[str, Dict[str, str]]:
+def user_password_hash_get(message: bytes) -> dict[str, Any]:
     expect_empty_message(message, "user_password_hash_get()")
-    data = send_and_wait_for_response_on_socket(bytearray(), str(SHADOW_SOCKET_PATH))
-    return {"user_password_hashes": get_dict(data, "user_password_hashes")}
+    response = send_to_go_daemon(SHADOW_SOCKET_PATH, "show", timeout=10)
+    assert response is not None
+    return response
 
 
 def user_password_hash_set(message: bytes) -> None:
@@ -896,10 +898,7 @@ def user_password_hash_set(message: bytes) -> None:
         if username not in user_names:
             raise InvalidPayloadError(f"User {username} password cannot be changed")
 
-    send_and_wait_for_response_on_socket(
-        bytearray(json.dumps(user_password_hashes), encoding="utf-8"),
-        str(SHADOW_SOCKET_PATH),
-    )
+    send_to_go_daemon(SHADOW_SOCKET_PATH, "set_config", {"user_password_hashes": user_password_hashes}, timeout=10)
 
 
 def serialnumber_get(message: bytes) -> Dict[str, str]:
