@@ -15,16 +15,12 @@ Python client for the GO wifi daemon unix socket.
 """
 from __future__ import annotations
 
-import json
-import socket
-import struct
 import sys
 from pathlib import Path
 from typing import Any
 
 from mpa.common.logger import Logger
-from mpa.device.common import read_exactly
-from mpa.communication.message_parser import get_optional_dict
+from mpa.communication.trivial_go_daemon_client import send_to_go_daemon
 
 logger = Logger(f"{sys.argv[0] if __name__ == '__main__' else __name__}")
 
@@ -38,24 +34,7 @@ def is_wifi_daemon_available() -> bool:
 
 def _send_to_wifi_daemon(msg_type: str, body: dict[str, Any] | None = None) -> dict[str, Any] | None:
     """Connect to GO wifi daemon, send length-prefixed JSON request, read response."""
-    request: dict[str, Any] = {"type": msg_type}
-    if body is not None:
-        request["body"] = body
-    payload = json.dumps(request).encode("utf-8")
-    logger.info(f'_send_to_wifi_daemon() {payload=}')
-    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
-        sock.settimeout(WIFI_DAEMON_TIMEOUT)
-        sock.connect(WIFI_DAEMON_SOCKET)
-        sock.sendall(struct.pack(">I", len(payload)))
-        sock.sendall(payload)
-        response_size = struct.unpack(">I", read_exactly(sock, 4))[0]
-        response_payload = read_exactly(sock, response_size)
-
-    response: dict[str, Any] = json.loads(response_payload)
-    if response.get("status") != "OK":
-        error_msg = response.get("exception", "Unknown error from wifi daemon")
-        raise RuntimeError(f"WiFi daemon error: {error_msg}")
-    return get_optional_dict(response, "body")
+    return send_to_go_daemon(WIFI_DAEMON_SOCKET, msg_type, body, WIFI_DAEMON_TIMEOUT)
 
 
 def daemon_ap_set_config(ap_config: dict[str, Any]) -> str | None:
