@@ -1114,8 +1114,8 @@ def smartems() -> None:
 @click.option("-U", "--url", required=True, help="URL for SmartEMS.")
 @click.option("-s", "--skip", is_flag=True,
               help="Skip checking SSL certificate for SmartEMS. DANGER! This allows man-in-the-middle attacks.")
-@click.option("-i", "--interval", type=click.IntRange(10), default=3600, show_default=True,
-              help="Period between two checks in seconds. The minimum is 10s.")
+@click.option("-i", "--interval", type=int, default=3600, show_default=True,
+              help="Period between two checks in seconds. 0 means single check on boot only. The minimum non-zero value is 10s.")
 # With new SmartEMS the endpoint for devices with VPNCC changes, default is old endpoint.
 @click.option("--vcc-api-endpoint", "--vcc_api_endpoint", is_flag=True,
               help="""If present, this API endpoint will be set - /api/edgegatewayvcc/configuration. Otherwise, this one
