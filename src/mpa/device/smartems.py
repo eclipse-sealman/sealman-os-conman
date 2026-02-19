@@ -111,10 +111,10 @@ Description=Smart EMS Update timer
 Documentation=
 
 [Timer]
-OnCalendar=daily
 OnBootSec=180s
 AccuracySec=1
-OnUnitActiveSec={interval}s
+{comment}OnCalendar=daily
+{comment}OnUnitActiveSec={{interval}}s
 Persistent=true
 
 [Install]
@@ -132,10 +132,11 @@ WantedBy=timers.target
 
     # TODO: switch to ACL approach instead of chmod (this function was created before we introduced ACL's
     def __update_timer(self, interval: int) -> None:
+        template = self.EMS_TIMER_TEMPLATE.format(comment="#" if interval == 0 else "")
         update_timer(
             interval=interval,
             timer=self.SMART_EMS_TIMER,
-            timer_template=self.EMS_TIMER_TEMPLATE
+            timer_template=template,
         )
 
     def _load_smartems_config(self) -> Any:
@@ -604,9 +605,12 @@ WantedBy=timers.target
         if "pollingInterval" in config:
             val = config["pollingInterval"]
             logger.info(f"pollingInterval is {val}")
-            if val < 10:
+            if val != 0 and val < 10:
                 logger.info(f"pollingInterval is {val} and it is too low")
-                raise InvalidParameterError(f"The value for polling interval is too low: {val}s. The minimum is 10s.")
+                raise InvalidParameterError(
+                    f"The value for polling interval is too low: {val}s."
+                    " Use 0 for single boot check or minimum 10s."
+                )
             self.__update_timer(config['pollingInterval'])
 
         if "certificate" in config:
