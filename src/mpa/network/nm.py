@@ -185,15 +185,18 @@ def cellular_set(client: Client, interface: int, mode: str) -> None:
 @click.option("-A", "--access-number", default="*99***1#", show_default=True, help="Phone number of APN.")
 @click.option("-u", "--user", help="User name for APN")
 @click.option("-P", "--password", help="Password for APN.")
+@click.option("-f", "--force_pap", is_flag=True)
 @interface_number_argument_decorator
-def cellular_configure(client: Client, interface: int, pin: str, apn: str, access_number: str, user: str, password: str) -> None:
+def cellular_configure(client: Client, interface: int, pin: str, apn: str, access_number: str, user: str,
+                       password: str, force_pap: bool) -> None:
     data = {
         "apn": apn,
         "pin": pin or "",
         "access_number": access_number,
         "username": user or "",
         "password": password or "",
-        "interface": interface
+        "interface": interface,
+        "force_pap": force_pap
     }
     client.query(topics.net.cellular.set_config, data, exiting_print_message)
 
@@ -867,16 +870,18 @@ def turn_off_cellular_deprecated(client: Client, interface: int) -> None:
 @click.option("-A", "--access_number", default="*99***1#", show_default=True)
 @click.option("-u", "--user")
 @click.option("-P", "--password")
+@click.option("-f", "--force_pap", is_flag=True)
 @interface_number_argument_decorator
 def configure_cellular_deprecated(client: Client, interface: int, pin: str, apn: str, access_number: str, user: str,
-                                  password: str) -> None:
+                                  password: str, force_pap: str) -> None:
     data = {
         "apn": apn,
         "pin": pin or "",
         "access_number": access_number,
         "username": user or "",
         "password": password or "",
-        "interface": interface
+        "interface": interface,
+        "force_pap": force_pap
     }
     client.query(topics.net.cellular.set_config, data, exiting_print_message)
 

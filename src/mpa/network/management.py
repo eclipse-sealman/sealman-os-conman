@@ -146,6 +146,13 @@ def turn_on_cellular(config: Mapping[str, str], interface: int) -> None:
         run_command(f'nmcli con mod cellular{interface} gsm.password {optionally_from_config("password")}')
     if len(optionally_from_config("username")) > 0:
         run_command(f'nmcli con mod cellular{interface} gsm.username {optionally_from_config("username")}')
+    if "force_pap" in config and config["force_pap"]:
+        run_command(f'nmcli con mod cellular{interface} ppp.refuse-chap yes ppp.refuse-mschap yes ppp.refuse-mschapv2 \
+                      yes ppp.refuse-eap yes')
+    else:
+        run_command(f'nmcli con mod cellular{interface} ppp.refuse-chap no ppp.refuse-mschap no ppp.refuse-mschapv2 \
+                      no ppp.refuse-eap no')
+
     run_command(f'nmcli con mod cellular{interface} ipv6.method disabled')
     run_command(f'nmcli con mod cellular{interface} connection.llmnr 0')
     run_command(f'nmcli con mod cellular{interface} connection.autoconnect true')
