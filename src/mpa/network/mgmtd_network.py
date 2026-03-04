@@ -64,6 +64,7 @@ from mpa.config.common import CONFIG_DIR_ROOT
 from mpa.device.common import RESOLVED_CONF, LINK_TO_RESOLVED_CONF, CaseSensitiveConfigParser
 from mpa.network.cellular_check import CellularCheck
 from mpa.network.dhcp_server import Dhcp4Server
+from mpa.network.cellular_debug import get_modem_info
 from mpa.network.management import (
     get_configured_addresses_and_masks,
     get_configured_dns,
@@ -183,6 +184,34 @@ def get_cellular_config(interface: int) -> Union[None, str, Mapping[str, Any]]:
     else:
         config['state'] = 'off'
     return config
+
+
+def net_cellular_debug(message: Optional[bytes] = None) -> Union[None, str, Mapping[str, Any]]:
+    if message is None :
+        raise RuntimeError("Message needs to be provided to net_cellular_debug")
+    payload = json.loads(message)
+    interface = get_int(payload, "interface")
+    modem_data = get_modem_info(interface)
+    if modem_data:
+        modem_data = modem_data.to_dict()
+        response = {
+            "status": modem_data["generic"]["state"],
+            "fail_reason": modem_data["generic"]["state_failed_reason"],
+            "access_technology": modem_data["generic"]["access_technologies"],
+            "rssi": modem_data["signalmetrics"]["rssi"],
+            "rsrp": modem_data["signalmetrics"]["rsrp"],
+            "rsrq": modem_data["signalmetrics"]["rsrq"],
+            "operator_name": modem_data["sim"]["operator_name"],
+            "operator_id": modem_data["sim"]["operator_id"],
+            "registration": modem_data["3gpp"]["registration_state"],
+            "imei": modem_data["3gpp"]["imei"],
+            "iccid": modem_data["sim"]["iccid"],
+            "imsi": modem_data["sim"]["imsi"],
+            "sim_state": modem_data["sim"]["status"]
+        }
+        return response
+    else:
+        raise RuntimeError("Selected modem did not response")
 
 
 def get_eth_config(config: MutableMapping[str, Any]) -> MutableMapping[str, Any]:
@@ -819,10 +848,11 @@ def main() -> None:
     messages[topics.net.dns.get_config] = guarded(sync(get_current_dns))
     messages[topics.net.cellular.set_config] = guarded(sync(net_cellular_set_config))
     messages[topics.net.cellular.change_state] = guarded(sync(net_cellular_change_state))
+    messages[topics.net.cellular.check] = guarded(sync(cellular_checklist))
+    messages[topics.net.cellular.debug] = guarded(sync(net_cellular_debug))
     in_bg(topics.net.wifi.client.scan, guarded(net_wifi_client_scan))
     in_bg(topics.net.wifi.client.set_config, guarded(net_wifi_client_set_config))
     in_bg(topics.net.wifi.client.change_state, guarded(net_wifi_client_change_state))
-    messages[topics.net.cellular.check] = guarded(sync(cellular_checklist))
     messages[topics.net.promiscous_mode.set_config] = guarded(sync(promiscous_mode_set_config))
     messages[topics.net.ids.change_state] = guarded(sync(change_ids_state))
     messages[topics.net.dhcp_server.get_config] = guarded(sync(dhcp_server_get_config))
