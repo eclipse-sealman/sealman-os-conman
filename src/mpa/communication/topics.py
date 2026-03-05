@@ -128,6 +128,13 @@ class docker:
         get_config = "docker.dns.get_config"
         set_config = "docker.dns.set_config"
 
+    class network_pools:
+        set_config = "docker.network_pools.set_config"
+        get_config = "docker.network_pools.get_config"
+        add = "docker.network_pools.add"
+        remove = "docker.network_pools.remove"
+        clear = "docker.network_pools.clear"
+
     class params:
         set = "docker.params.set"
         get_config = "docker.params.get_config"
