@@ -268,6 +268,61 @@ def params_set_config(client: Client, filename: Path) -> None:
     trivial_set_config(client, topic=topics.docker.params.set_config, file_name=filename)
 
 
+@cli.group("network-pools")
+def network_pools() -> None:
+    """Configuration of default docker network address pools.
+
+    Examples:
+    *** show --- display configured docker network address pools
+    *** add -b 172.16.0.0/16 -s 24 --- add new docker network address pool
+    *** remove -b 172.16.0.0/16 --- remove docker network address pool
+    *** clear --- remove all configured docker network address pools
+    """
+
+
+@network_pools.command_with_client("show")
+def network_pools_show(client: Client) -> None:
+    """Show configured docker network address pools."""
+    client.query(topics.docker.network_pools.get_config, handler=exiting_print_message)
+
+
+@network_pools.command_with_client("add")
+@click.option(
+    "-b",
+    "--base",
+    required=True,
+    help="Base network in CIDR notation (e.g. 172.16.0.0/16)",
+)
+@click.option(
+    "-s",
+    "--size",
+    required=True,
+    type=int,
+    help="Subnet size for docker networks (e.g. 24)",
+)
+def network_pools_add(client: Client, base: str, size: int) -> None:
+    """Add a new docker network address pool."""
+    client.query(topics.docker.network_pools.add, {"base": base, "size": size}, exiting_print_message)
+
+
+@network_pools.command_with_client("remove")
+@click.option(
+    "-b",
+    "--base",
+    required=True,
+    help="Base network of the pool to remove",
+)
+def network_pools_remove(client: Client, base: str) -> None:
+    """Remove an existing docker network address pool."""
+    client.query(topics.docker.network_pools.remove, {"base": base}, exiting_print_message)
+
+
+@network_pools.command_with_client("clear")
+def network_pools_clear(client: Client) -> None:
+    """Remove all configured docker network address pools."""
+    client.query(topics.docker.network_pools.clear, handler=exiting_print_message)
+
+
 #################################################################################
 #                               DEPRECATED COMMANDS                             #
 #################################################################################
