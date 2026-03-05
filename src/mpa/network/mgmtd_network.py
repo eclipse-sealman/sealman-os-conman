@@ -187,7 +187,7 @@ def get_cellular_config(interface: int) -> Union[None, str, Mapping[str, Any]]:
 
 
 def net_cellular_debug(message: Optional[bytes] = None) -> Union[None, str, Mapping[str, Any]]:
-    if message is None :
+    if message is None:
         raise RuntimeError("Message needs to be provided to net_cellular_debug")
     payload = json.loads(message)
     interface = get_int(payload, "interface")

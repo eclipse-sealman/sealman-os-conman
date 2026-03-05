@@ -16,12 +16,14 @@ class Generic:
     state_failed_reason: str
     access_technologies: list
 
+
 @dataclass
 class Modem3gpp:
     imei: str
     operator_id: str
     operator_name: str
     registration_state: str
+
 
 @dataclass
 class SignalMetrics:
@@ -33,6 +35,7 @@ class SignalMetrics:
     rsrp:  int | None = None
     rssi: int | None = None
 
+
 @dataclass
 class Sim:
     iccid: str | None = None
@@ -41,12 +44,14 @@ class Sim:
     operator_id: str | None = None
     status: str | None = None
 
+
 @dataclass
 class ModemInfo:
     generic: Generic
     modem3gpp: Modem3gpp | None = None
     signalmetrics: SignalMetrics | None = None
     sim: Sim | None = None
+
     def to_dict(self) -> dict:
 
         modem_d: dict = {"generic": asdict(self.generic)}
@@ -60,4 +65,3 @@ class ModemInfo:
 
     def to_json(self, indent: int = 2) -> str:
         return json.dumps(self.to_dict(), indent=indent)
-    
