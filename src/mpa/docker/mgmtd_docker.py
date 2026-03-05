@@ -18,24 +18,28 @@ from __future__ import annotations
 
 # Standard imports
 import argparse
+import ipaddress
 import json
 import sys
-from typing import Any, Callable, Mapping, Optional, Union
+from typing import Any, Callable, Mapping, Optional, Union, cast
 
 # Local imports
 import mpa.communication.topics as topics
+from mpa.common.logger import Logger
+from mpa.common.common import empty_message_wrapper
 from mpa.communication import client as com_client
 from mpa.communication.client import guarded
 from mpa.communication.client import sync, Async
 from mpa.communication.client import background
 from mpa.communication.common import expect_empty_message
 from mpa.communication.common import InvalidParameterError
-from mpa.communication.common import is_response_ok
 from mpa.communication.inter_process_lock import InterProcessLock
-from mpa.communication.message_parser import get_dict, get_ip46, get_ip46_list, get_optional_bool, get_optional_int
-from mpa.communication.process import run_command
-from mpa.common.logger import Logger
+from mpa.communication.message_parser import (
+    get_dict, get_ip46, get_ip46_list, get_optional_bool, get_optional_int, get_str, get_int
+)
+from mpa.communication.process import run_command, run_command_unchecked
 from mpa.config.common import CONFIG_DIR_ROOT
+from mpa.docker.common import COMPOSE_FILES_DIR, run_docker_compose, docker_compose_up_async
 
 logger = Logger(f"{sys.argv[0] if __name__ == '__main__' else __name__}")
 
@@ -48,15 +52,37 @@ _args = _parser.parse_args()
 _client = com_client.Client(args=_args)
 
 
+def _docker_restart(restart_iotedge: bool = True, restart_containers: bool = True) -> None:
+    if restart_iotedge:
+        run_command("iotedge system stop")
+
+    run_command("systemctl restart docker")
+
+    if restart_iotedge:
+        run_command_unchecked("docker network rm azure-iot-edge")
+        run_command("iotedge system restart")
+
+    if restart_containers:
+        compose_dirs = list(COMPOSE_FILES_DIR.glob("*"))
+        if len(compose_dirs) == 0:
+            return
+        
+        for d in compose_dirs:
+            run_docker_compose("down", cwd=d)
+        
+        docker_compose_up_async(*compose_dirs)
+
+
 def docker_dns_get_config(message: bytes) -> Mapping[str, Any]:
     expect_empty_message(message, "docker_dns_get_config()")
     json_data = json.loads(DOCKER_CONFIG.read_text())
     return {"dockerdns": json_data['dns']}
 
 
+@empty_message_wrapper
 def docker_restart(message: bytes) -> None:
     expect_empty_message(message, "docker_restart()")
-    run_command("systemctl restart docker")
+    _docker_restart(restart_iotedge=True, restart_containers=True)
 
 
 def docker_dns_add(message: bytes) -> None:
@@ -87,14 +113,15 @@ def docker_dns_del(message: bytes) -> None:
     logger.info("Added new dockerdns")
 
 
-def docker_dns_set_config(message: bytes) -> None:
+def docker_dns_set_config(message: bytes, restart_docker: bool = True) -> None:
     config = json.loads(message)
     list_of_ips = [f"{ipaddr}" for ipaddr in get_ip46_list(config, "dockerdns")]
     with DOCKER_SET_CONFIG_LOCK.transaction("Global lock for setting docker config"):
         old_config = json.loads(DOCKER_CONFIG.read_text())
         old_config['dns'] = list_of_ips
         DOCKER_CONFIG.write_text(json.dumps(old_config, indent=4))
-        run_command("systemctl restart docker")
+        if restart_docker:
+            _docker_restart(restart_iotedge=False, restart_containers=False)
 
 
 def docker_params_get_config(message: bytes) -> Mapping[str, Any]:
@@ -131,7 +158,91 @@ def docker_params_set(message: bytes, restart_docker: bool = True) -> None:
     with DOCKER_SET_CONFIG_LOCK.transaction("Global lock for setting docker config"):
         DOCKER_CONFIG.write_text(json.dumps(json_data, indent=4))
         if restart_docker:
-            run_command("systemctl restart docker")
+            _docker_restart(restart_iotedge=False, restart_containers=False)
+
+
+def _validate_pool(base: str, size: int) -> None:
+    try:
+        network = ipaddress.ip_network(base, strict=True)
+    except ValueError as e:
+        raise InvalidParameterError(f"Invalid CIDR '{base}': {e}")
+
+    if network.version != 4:
+        raise InvalidParameterError("Only IPv4 networks are supported")
+
+    if size <= network.prefixlen:
+        raise InvalidParameterError(f"Invalid subnet size {size}. Must be larger than base prefix {network.prefixlen}")
+
+
+def _get_current_pools() -> list[dict[str, str | int]]:
+    json_data = json.loads(DOCKER_CONFIG.read_text())
+    pools = cast(list[dict[str, str | int]], json_data.get("default-address-pools", []))
+    return pools
+
+
+def _write_pools(pools: list[dict[str, str | int]]) -> None:
+    json_data = json.loads(DOCKER_CONFIG.read_text())
+    json_data["default-address-pools"] = pools
+    DOCKER_CONFIG.write_text(json.dumps(json_data, indent=4))
+
+
+def docker_network_pools_get_config(message: bytes) -> Mapping[str, Any]:
+    expect_empty_message(message, "docker_network_pools_get_config()")
+    pools = _get_current_pools()
+    return {
+        "network_pools": [
+            {"base": pool["base"], "size": pool["size"]}
+            for pool in pools
+        ]
+    }
+
+
+def docker_network_pools_add(message: bytes) -> None:
+    data = json.loads(message)
+    base = get_str(data, "base")
+    size = get_int(data, "size")
+    _validate_pool(base, size)
+    pools = _get_current_pools()
+    if any(str(pool["base"]) == base for pool in pools):
+        raise InvalidParameterError(f"Network pool {base} already configured")
+
+    pools.append({"base": base, "size": size})
+    _write_pools(pools)
+
+
+def docker_network_pools_remove(message: bytes) -> None:
+    data = json.loads(message)
+    base = get_str(data, "base")
+    pools = _get_current_pools()
+    new_pools = [pool for pool in pools if pool["base"] != base]
+    if len(new_pools) == len(pools):
+        raise InvalidParameterError(f"Network pool {base} not configured")
+
+    _write_pools(new_pools)
+
+
+def docker_network_pools_clear(message: bytes) -> None:
+    expect_empty_message(message, "docker_network_pools_clear()")
+    _write_pools([])
+
+
+def docker_network_pools_set_config(message: bytes, restart_docker: bool = True) -> None:
+    config = json.loads(message)
+    pools = config.get("network_pools")
+    if pools is None:
+        return
+
+    validated_pools: list[dict[str, str | int]] = []
+    for pool in pools:
+        base = get_str(pool, "base")
+        size = get_int(pool, "size")
+        _validate_pool(base, size)
+        validated_pools.append({"base": base, "size": size})
+
+    with DOCKER_SET_CONFIG_LOCK.transaction("Global lock for setting docker network pools"):
+        _write_pools(validated_pools)
+        if restart_docker:
+            _docker_restart()
 
 
 def docker_set_config(query_message: bytes, from_part: bytes, query_message_id: bytes) -> Async:
@@ -148,17 +259,10 @@ def docker_set_config(query_message: bytes, from_part: bytes, query_message_id: 
             return False
         return None
 
-    def set_compose_config(message: Union[bytes, str]) -> Optional[bool]:
-        if isinstance(message, bytes) and is_response_ok(message):
-            _client.query(topics.docker.compose.set_config, config, handler=respond)
-        else:  # Something went wrong in dns-setting --- just forward back dns setting response
-            _client.respond(topics.docker.set_config + com_client.RESPONSE_SUFFIX, message, from_part, query_message_id)
-        if isinstance(message, str):
-            return False
-        return None
-
     docker_params_set(json.dumps(config).encode(), restart_docker=False)
-    _client.query(topics.docker.dns.set_config, config, handler=set_compose_config)
+    docker_dns_set_config(json.dumps(config).encode(), restart_docker=False)
+    docker_network_pools_set_config(json.dumps(config).encode(), restart_docker=True)
+    _client.query(topics.docker.compose.set_config, config, handler=respond)
     return Async()
 
 
@@ -176,6 +280,11 @@ def main() -> None:
     messages[topics.docker.params.get_config] = guarded(sync(docker_params_get_config))
     messages[topics.docker.params.set_config] = guarded(sync(docker_params_set))
     messages[topics.docker.set_config] = guarded(docker_set_config)
+    in_bg(topics.docker.network_pools.set_config, guarded(docker_network_pools_set_config))
+    messages[topics.docker.network_pools.get_config] = guarded(sync(docker_network_pools_get_config))
+    messages[topics.docker.network_pools.add] = guarded(sync(docker_network_pools_add))
+    messages[topics.docker.network_pools.remove] = guarded(sync(docker_network_pools_remove))
+    messages[topics.docker.network_pools.clear] = guarded(sync(docker_network_pools_clear))
 
     _client.register_responders(messages)
 
