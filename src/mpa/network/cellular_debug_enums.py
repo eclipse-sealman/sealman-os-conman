@@ -4,11 +4,11 @@ from __future__ import annotations
 # https://github.com/openshine/ModemManager/blob/master/include/ModemManager-enums.h
 
 MODEM_STATE: dict[int, str] = {
-    -1: "failed",       0: "unknown",       1: "initializing",
-     2: "locked",       3: "disabled",      4: "disabling",
-     5: "enabling",     6: "enabled",       7: "searching",
-     8: "registered",   9: "disconnecting", 10: "connecting",
-    11: "connected",
+                                -1: "failed",       0: "unknown",       1: "initializing",
+                                2: "locked",       3: "disabled",      4: "disabling",
+                                5: "enabling",     6: "enabled",       7: "searching",
+                                8: "registered",   9: "disconnecting", 10: "connecting",
+                                11: "connected",
 }
 MODEM_STATE_FAILED_REASON: dict[int, str] = {
     0: "none", 1: "unknown", 2: "sim-missing", 3: "sim-error",

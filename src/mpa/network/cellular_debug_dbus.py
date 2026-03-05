@@ -5,12 +5,14 @@ import sys
 
 logger = Logger(f"{sys.argv[0] if __name__ == '__main__' else __name__}")
 
-_MM_BUS   = "org.freedesktop.ModemManager1"
+_MM_BUS = "org.freedesktop.ModemManager1"
 _MM_IFACE = "org.freedesktop.ModemManager1.Modem"
-__MM_SIM_IFACE   = "org.freedesktop.ModemManager1.Sim"
+_MM_SIM_IFACE = "org.freedesktop.ModemManager1.Sim"
+
 
 def _unwrap(v):
     return None if v is None else v.unpack()
+
 
 def find_objects_by_interface(
     connection: Gio.DBusConnection,
@@ -37,6 +39,7 @@ def find_objects_by_interface(
             return path
     return None
 
+
 def get_all(connection: Gio.DBusConnection, object_path: str,
             interface: str) -> dict:
     result = connection.call_sync(
@@ -51,6 +54,7 @@ def get_all(connection: Gio.DBusConnection, object_path: str,
         None,
     )
     return _unwrap(result.get_child_value(0))
+
 
 def send_at(connection: Gio.DBusConnection, object_path: str, command: str):
     result = connection.call_sync(

@@ -137,11 +137,13 @@ def cellular() -> None:
     *** set 2 off --- to disable cellular2 interface
     """
 
+
 @cellular.command_with_client("debug")
 @interface_number_argument_decorator
 def cellular_debug(client: Client, interface: int) -> None:
     data = {"interface": interface}
     client.query(topics.net.cellular.debug, data, exiting_print_message)
+
 
 # TODO add at_boot vs. now (and unify other commands which shall have this distinction)
 @cellular.command_with_client("set")
