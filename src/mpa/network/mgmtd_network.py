@@ -193,21 +193,21 @@ def net_cellular_debug(message: Optional[bytes] = None) -> Union[None, str, Mapp
     interface = get_int(payload, "interface")
     modem_data = get_modem_info(interface)
     if modem_data:
-        modem_data = modem_data.to_dict()
+        data = modem_data.to_dict()
         response = {
-            "status": modem_data["generic"]["state"],
-            "fail_reason": modem_data["generic"]["state_failed_reason"],
-            "access_technology": modem_data["generic"]["access_technologies"],
-            "rssi": modem_data["signalmetrics"]["rssi"],
-            "rsrp": modem_data["signalmetrics"]["rsrp"],
-            "rsrq": modem_data["signalmetrics"]["rsrq"],
-            "operator_name": modem_data["sim"]["operator_name"],
-            "operator_id": modem_data["sim"]["operator_id"],
-            "registration": modem_data["3gpp"]["registration_state"],
-            "imei": modem_data["3gpp"]["imei"],
-            "iccid": modem_data["sim"]["iccid"],
-            "imsi": modem_data["sim"]["imsi"],
-            "sim_state": modem_data["sim"]["status"]
+            "status": data["generic"]["state"],
+            "fail_reason": data["generic"]["state_failed_reason"],
+            "access_technology": data["generic"]["access_technologies"],
+            "rssi": data["signalmetrics"]["rssi"],
+            "rsrp": data["signalmetrics"]["rsrp"],
+            "rsrq": data["signalmetrics"]["rsrq"],
+            "operator_name": data["sim"]["operator_name"],
+            "operator_id": data["sim"]["operator_id"],
+            "registration": data["3gpp"]["registration_state"],
+            "imei": data["3gpp"]["imei"],
+            "iccid": data["sim"]["iccid"],
+            "imsi": data["sim"]["imsi"],
+            "sim_state": data["sim"]["status"]
         }
         return response
     else:
