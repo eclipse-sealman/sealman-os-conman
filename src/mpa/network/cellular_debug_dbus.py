@@ -1,7 +1,8 @@
 from __future__ import annotations
-from gi.repository import Gio, GLib
+from gi.repository import Gio, GLib   # type: ignore
 from mpa.common.logger import Logger
 import sys
+from typing import Any, Dict, Optional
 
 logger = Logger(f"{sys.argv[0] if __name__ == '__main__' else __name__}")
 
@@ -10,14 +11,14 @@ _MM_IFACE = "org.freedesktop.ModemManager1.Modem"
 _MM_SIM_IFACE = "org.freedesktop.ModemManager1.Sim"
 
 
-def _unwrap(v):
+def _unwrap(v: Any) -> Any:
     return None if v is None else v.unpack()
 
 
 def find_objects_by_interface(
     connection: Gio.DBusConnection,
     interface: str,
-) -> str | None:
+) -> Optional[str]:
     result = connection.call_sync(
         _MM_BUS,
         "/org/freedesktop/ModemManager1",
@@ -29,7 +30,7 @@ def find_objects_by_interface(
         -1,
         None,
     )
-    objects: dict = _unwrap(result.get_child_value(0))
+    objects: Dict[str, Any] = _unwrap(result.get_child_value(0))
     iface = "org.freedesktop.ModemManager1.Modem"
     for path, ifaces in objects.items():
         if iface not in ifaces:
@@ -41,7 +42,7 @@ def find_objects_by_interface(
 
 
 def get_all(connection: Gio.DBusConnection, object_path: str,
-            interface: str) -> dict:
+            interface: str) -> Any:
     result = connection.call_sync(
         _MM_BUS,
         object_path,
@@ -56,7 +57,7 @@ def get_all(connection: Gio.DBusConnection, object_path: str,
     return _unwrap(result.get_child_value(0))
 
 
-def send_at(connection: Gio.DBusConnection, object_path: str, command: str):
+def send_at(connection: Gio.DBusConnection, object_path: str, command: str) -> Any:
     result = connection.call_sync(
             _MM_BUS,
             object_path,

@@ -13,7 +13,7 @@
 #
 
 from __future__ import annotations
-from gi.repository import Gio, GLib
+from gi.repository import Gio, GLib  # type: ignore
 from mpa.network.cellular_debug_models import ModemInfo, Generic, Modem3gpp, SignalMetrics, Sim
 from mpa.network.cellular_debug_dbus import get_all, find_objects_by_interface, send_at, _MM_IFACE, _MM_SIM_IFACE
 from mpa.network.cellular_debug_enums import (
@@ -24,10 +24,12 @@ from mpa.network.cellular_debug_enums import (
 from mpa.common.logger import Logger
 import sys
 import re
+from typing import Any, Dict, Optional
+
 logger = Logger(f"{sys.argv[0] if __name__ == '__main__' else __name__}")
 
 
-def _build_generic(object_path: str, g: dict) -> Generic:
+def _build_generic(object_path: str, g: Dict[str, Any]) -> Generic:
     return Generic(
         unlock_required=enum_str(g.get("UnlockRequired", 0), MODEM_LOCK),
         state=enum_str(g.get("State", 0), MODEM_STATE),
@@ -36,7 +38,7 @@ def _build_generic(object_path: str, g: dict) -> Generic:
     )
 
 
-def _build_3gpp(gpp: dict) -> Modem3gpp | None:
+def _build_3gpp(gpp: Dict[str, Any]) -> Modem3gpp | None:
     if not gpp:
         return None
     return Modem3gpp(
@@ -55,7 +57,7 @@ def __sim_status(unlock_required: int) -> str:
         return f"active, {MODEM_LOCK.get(unlock_required)} locked"
 
 
-def _build_sim(sim: dict, modem_data: dict) -> Sim | None:
+def _build_sim(sim: Dict[str, Any], modem_data: Dict[str, Any]) -> Sim | None:
     if not sim:
         return None
     return Sim(
@@ -81,9 +83,11 @@ def _build_signal_metrics(cesq: str, csq: str) -> SignalMetrics:
 
     match = re.search(r"\+CSQ:\s*(\d+),(\d+)", csq)
 
+    if not match:
+        raise ValueError("Invalid +CSQ response")
     rssi_raw = int(match.group(1))
 
-    def normalize(value: int) -> int:
+    def normalize(value: int) -> Optional[int]:
         if value in (99, 255):
             return None
         return value

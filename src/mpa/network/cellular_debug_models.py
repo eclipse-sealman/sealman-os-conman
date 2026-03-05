@@ -1,6 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass, asdict
 import json
+from typing import Any, List
 
 
 @dataclass
@@ -14,7 +15,7 @@ class Generic:
     unlock_required: str
     state: str
     state_failed_reason: str
-    access_technologies: list
+    access_technologies: List[str]
 
 
 @dataclass
@@ -52,9 +53,9 @@ class ModemInfo:
     signalmetrics: SignalMetrics | None = None
     sim: Sim | None = None
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
 
-        modem_d: dict = {"generic": asdict(self.generic)}
+        modem_d: dict[str, object] = {"generic": asdict(self.generic)}
         if self.modem3gpp:
             modem_d["3gpp"] = asdict(self.modem3gpp)
         if self.signalmetrics:
