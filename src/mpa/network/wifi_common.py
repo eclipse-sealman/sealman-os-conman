@@ -50,14 +50,6 @@ from gi.repository import NM, GLib, Gio, GObject  # type: ignore # noqa: E402
 logger = Logger(f"{sys.argv[0] if __name__ == '__main__' else __name__}")
 
 WIFI_CONFIG_FILE = str(CONFIG_DIR_ROOT / "eg" / "wifi-config.json")
-_AP_DEFAULTS: dict[str, Any] = {
-    "ssid": "EdgeGateway",
-    "key": "ap-password",
-    "authentication": "wpa2-psk",
-    "encryption": ["ccmp"],
-    "channel": 6,
-    "hidden": False,
-}
 
 def save_wifi_config(config: MutableMapping[str, Any]) -> None:
     """Persist wifi config to file."""
@@ -416,7 +408,8 @@ class ConnectionsManager(object):
 
 
 # create a Wifi connection and return it
-def create_wifi_connection(name: str, interface: str, ssid: str, key: str, authentication: str, encryption: List[str], is_enabled: bool) -> NM.SimpleConnection:
+def create_wifi_connection(name: str, interface: str, ssid: str, key: str,
+                           authentication: str, encryption: List[str], is_enabled: bool) -> NM.SimpleConnection:
     connection = NM.SimpleConnection.new()
     setting_connection = NM.SettingConnection.new()
     setting_connection.props.id = name
@@ -702,6 +695,8 @@ def get_wifi_config(nmc: NM.Client, ifname: str, config: MutableMapping[str, Any
 
     active_connection = wifi.get_active_connection()
     available_connections = wifi.get_available_connections()
+    interface_settings = config['network'].setdefault(ifname, {})
+    connection_settings = {}
     for connection in available_connections:
         setting_wireless = connection.get_setting_wireless()
 
@@ -710,7 +705,6 @@ def get_wifi_config(nmc: NM.Client, ifname: str, config: MutableMapping[str, Any
         if setting_wireless.props.mode == "ap":
             continue
 
-        connection_settings = {}
         connection_settings['ssid'] = NM.utils_ssid_to_utf8(setting_wireless.get_ssid().get_data())
         connection_settings['bssid'] = setting_wireless.get_bssid()
         setting_wireless_security = connection.get_setting_wireless_security()
@@ -774,42 +768,53 @@ def get_wifi_config(nmc: NM.Client, ifname: str, config: MutableMapping[str, Any
         else:
             connection_settings['dhcp'] = False
 
-        config['network'].setdefault(ifname, {})['client'] = connection_settings
-
-    iface = config['network'].setdefault(ifname, {})
+    interface_settings['client'] = connection_settings
+    interface_settings = config['network'].setdefault(ifname, {})
     daemon_config = daemon_ap_get_config()
     if daemon_config:
-        iface['ap'] = get_optional_dict(daemon_config, 'ap')
+        interface_settings['ap'] = get_optional_dict(daemon_config, 'ap')
         ap_enabled = get_optional_bool(daemon_config, 'is_enabled') or False
     else:
-        iface['ap'] = None
+        interface_settings['ap'] = None
         ap_enabled = False
 
     client_enabled = active_connection is not None and active_connection.get_id() == f"{ifname}-client"
     if ap_enabled:
-        iface['is_enabled'] = True
-        iface['mode'] = 'ap'
+        interface_settings['is_enabled'] = True
+        interface_settings['mode'] = 'ap'
     elif client_enabled:
-        iface['is_enabled'] = True
-        iface['mode'] = 'client'
+        interface_settings['is_enabled'] = True
+        interface_settings['mode'] = 'client'
     else:
-        iface['is_enabled'] = False
-        iface['mode'] = ''
+        interface_settings['is_enabled'] = False
+        interface_settings['mode'] = ''
     return config
 
-
-def wifi_change_state(nmc: NM.Client, mode: str, state: str, ifname: str) -> str:
+def wifi_change_state(nmc: NM.Client, mode: str, ifname: str, *, is_enabled: bool) -> str | None:
     wifi = nmc.get_device_by_iface(ifname)
     if wifi is None:
         raise InvalidParameterError(f"Device {ifname} is not available")
 
-    match (mode, state):
+    def client_disable() -> str | None:
+        # get_active_connection returns active_connection or None
+        active_connection = wifi.get_active_connection()
+        # XXX: Currently only one connection will be available on the created list
+        # so we do not care about proper verification
+        if active_connection is None or active_connection.get_id() != f"{ifname}-client":
+            return None
+        return ConnectionsManager(nmc, [active_connection], "disable").deactivate_connections()
+
+
+    match (mode, is_enabled):
         case ("ap", True):
+            client_disable()
             daemon_ap_enable()
+            retval = None
         case ("ap", False):
             daemon_ap_disable()
+            retval = None
         case ("client", True):
-            logger.info('net_wifi_client_enable')
+            daemon_ap_disable()
             # XXX: ugly hack - old client code assumed one connection per wifi device,
             # so until we switch to GO we filter out AP connections.
             available_connections = [
@@ -820,15 +825,9 @@ def wifi_change_state(nmc: NM.Client, mode: str, state: str, ifname: str) -> str
                 raise InvalidPreconditionError(f"No matching connection for {ifname} interface name")
             retval = ConnectionsManager(nmc, available_connections, "enable").activate_connections()
         case ("client", False):
-            logger.info('net_wifi_client_disable')
-            # get_active_connection returns active_connection or None
-            active_connection = wifi.get_active_connection()
-            # XXX: Currently only one connection will be available on the created list
-            # so we do not care about proper verification
-            if active_connection is None or active_connection.get_id() != f"{ifname}-client":
+            retval = client_disable()
+            if retval is None:
                 raise InvalidPreconditionError(f"No active client connection on {ifname} interface name")
-            retval = ConnectionsManager(nmc, [active_connection], "disable").deactivate_connections()
         case _:
-            raise InvalidParameterError(f"Invalid (mode, state) {mode} {state} parameter pair provided")
-
+            raise InvalidParameterError(f"Invalid {mode=} {is_enabled=} parameter pair provided")
     return retval

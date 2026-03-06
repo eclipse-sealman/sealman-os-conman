@@ -14,14 +14,14 @@
 import json
 import sys
 from pathlib import Path
-from typing import Any, Optional, List, Union
+from typing import Any, Optional, List, Union, Protocol
 
 # Third party imports
 import click
 
 # Local imports
 import mpa.communication.topics as topics
-from mpa.communication.message_parser import get_dict, get_optional_dict, get_optional_str
+from mpa.communication.message_parser import get_dict, get_optional_bool, get_optional_dict, get_optional_str
 from .common import SCOPES, TYPES, DEFAULT_VLAN_METRIC
 from mpa.common.cli import (
     custom_group,
@@ -157,7 +157,7 @@ def cellular_set(client: Client, interface: int, mode: str) -> None:
     be configured beforehand with `cellular-configure` command.
     Use mode `off` to disconnect mobile network interface.
     """
-    data = {"state": mode, "interface": interface}
+    data = {"is_enabled": mode=="on", "interface": interface}
     client.query(topics.net.cellular.change_state, data, exiting_print_message)
 
 
@@ -240,16 +240,23 @@ def wifi_client_scan(client: Client, rescan: str) -> None:
     client.query(topics.net.wifi.client.scan, {"rescan": rescan}, handler=exiting_print_message)
 
 
+class TopicWithChangeState(Protocol):
+    change_state: str
+
+
+def change_state(client: Client, topic: TopicWithChangeState, is_enabled: bool) -> None:
+    client.query(topic.change_state, {"is_enabled": is_enabled}, handler=exiting_print_message)
+
 @client.command_with_client("enable")
 def wifi_client_enable(client: Client) -> None:
     """Enable and connect configured profile."""
-    client.query(topics.net.wifi.client.change_state, "enable", handler=exiting_print_message)
+    change_state(client, topics.net.wifi.client, is_enabled=True)
 
 
 @client.command_with_client("disable", timeout_ms=40_000)
 def wifi_client_disable(client: Client) -> None:
     """Disable and disconnect configured profile."""
-    client.query(topics.net.wifi.client.change_state, "disable", handler=exiting_print_message)
+    change_state(client, topics.net.wifi.client, is_enabled=False)
 
 
 # Both WPA-PSK and WPA2-PSK supports TKIP (RC4 cipher) and/or CCMP (AES-CBC), the difference is in implementation of these modes
@@ -264,8 +271,12 @@ def wifi_client_disable(client: Client) -> None:
               type=click.Choice(["auto", "ccmp", "tkip"]),
               help="Encryption mode CCMP and/or TKIP for WPA / WPA2.")
 def wifi_client_config(client: Client, ssid: str, key: str, authentication: str, encryption: list[str]) -> None:
-    """Add and activate a new connection profile using the given details."""
-    request = {"wifi1": {"client": {"ssid": ssid, "key": key, "authentication": authentication, "encryption": encryption}, "is_enabled": True}}
+    """Configure connection profile using given details.
+
+    Connection state will not be affected, althoguth if connection was up it
+    will be truned off and on again to reapply parameters, which may change IP
+    address and break TCP connections (e.g. ssh session)."""
+    request = {"wifi1": {"ssid": ssid, "key": key, "authentication": authentication, "encryption": encryption}}
     client.query(topics.net.wifi.client.set_config, request, handler=exiting_print_message)
 
 
@@ -277,13 +288,13 @@ def ap() -> None:
 @ap.command_with_client("enable", timeout_ms=60_000)
 def wifi_ap_enable(client: Client) -> None:
     """Enable AP mode on wifi1 using saved or default settings."""
-    client.query(topics.net.wifi.ap.set_config, {"wifi1": {"ap": {}}}, handler=exiting_print_message)
+    change_state(client, topics.net.wifi.ap, is_enabled=True)
 
 
 @ap.command_with_client("disable")
 def wifi_ap_disable(client: Client) -> None:
     """Disable AP mode on wifi1."""
-    client.query(topics.net.wifi.ap.change_state, "disable", handler=exiting_print_message)
+    change_state(client, topics.net.wifi.ap, is_enabled=False)
 
 
 @ap.command_with_client("show")
@@ -292,8 +303,12 @@ def wifi_ap_show(client: Client) -> None:
     def handler(message: Union[bytes, str]) -> None:
         config = json.loads(message)
         network = get_dict(config, "network")
-        wifi1 = get_dict(network, "wifi1")
-        ap = get_optional_dict(wifi1, "ap")
+        wifi1 = get_optional_dict(network, "wifi1")
+        ap = None
+        if wifi1 is not None:
+            ap = get_optional_dict(wifi1, "ap")
+        if ap is None:
+            ap = {}
         click.echo(json.dumps(ap, indent=2))
         sys.exit(0)
     client.query(topics.net.get_config, handler=handler)
@@ -303,14 +318,21 @@ def wifi_ap_show(client: Client) -> None:
 def wifi_ap_status(client: Client) -> None:
     """Show AP status."""
     def handler(message: Union[bytes, str]) -> None:
-        config = json.loads(message)
-        network = get_dict(config, "network")
-        wifi = get_dict(network, "wifi1")
+        wifi1 = get_optional_dict(get_dict(json.loads(message), "network"), "wifi1")
+        ap_is_enabled = False
+        current_ip = ""
+        current_subnet = ""
+        if wifi1 is not None:
+            mode = get_optional_str(wifi1, "mode")
+            is_enabled = get_optional_bool(wifi1, "is_enabled")
+            if mode == "ap" and is_enabled:
+                ap_is_enabled = True
+                current_ip = get_optional_str(wifi1, "current_ip")
+                current_subnet = get_optional_str(wifi1, "current_subnet")
         result = {
-            "mode": get_optional_str(wifi, "mode"),
-            "state": get_optional_str(wifi, "state"),
-            "current_ip": get_optional_str(wifi, "current_ip"),
-            "current_subnet": get_optional_str(wifi, "current_subnet"),
+            "is_enabled": ap_is_enabled,
+            "current_ip": current_ip,
+            "current_subnet": current_subnet,
         }
         click.echo(json.dumps(result, indent=2))
         sys.exit(0)
@@ -329,17 +351,21 @@ def wifi_ap_status(client: Client) -> None:
 @click.option("--hidden/--no-hidden", default=False, show_default=True, help="Hide SSID in beacons.")
 def wifi_ap_config(client: Client, ssid: str, key: str, authentication: str,
                    encryption: list[str], channel: int, hidden: bool) -> None:
-    """Configure and activate AP mode with custom settings on wifi1."""
+    """Configure parameters of Access Point on wifi1.
+
+    Connection state will not be affected, although if AP was active it might be
+    temporarily brought down to reapply parameters, which may break any existing
+    connections of clients. In case change of IP config of wifi interface change
+    DHCP config may also need to be changed, and any existing DHCP leases for
+    wifi clients may be invalidated."""
     request: dict[str, Any] = {
         "wifi1": {
-            "ap": {
-                "ssid": ssid,
-                "key": key,
-                "authentication": authentication,
-                "encryption": list(encryption),
-                "channel": channel,
-                "hidden": hidden,
-            }
+            "ssid": ssid,
+            "key": key,
+            "authentication": authentication,
+            "encryption": list(encryption),
+            "channel": channel,
+            "hidden": hidden,
         }
     }
     client.query(topics.net.wifi.ap.set_config, request, handler=exiting_print_message)
