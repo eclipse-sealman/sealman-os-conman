@@ -21,7 +21,6 @@ from threading import Event
 from typing import Any, Dict, List, Optional, Union
 
 # Local imports
-from mpa.common.common import RESPONSE_OK
 from mpa.common.logger import Logger
 from mpa.communication.common import (
     InvalidParameterError,
@@ -29,7 +28,7 @@ from mpa.communication.common import (
     NetworkManagerError,
     NMDeviceActivationError
 )
-from mpa.communication.message_parser import get_bool, get_str, get_enum_str, get_enum_str_list, get_dict
+from mpa.communication.message_parser import get_optional_bool, get_str, get_enum_str, get_enum_str_list, get_dict
 from mpa.network.wifi_common import (
     ConnectionCbInfo,
     create_wifi_connection,
@@ -258,26 +257,39 @@ def wifi_client_scan(nmc: NM.Client, rescan: str) -> Dict[Any, defaultdict[str, 
 # TODO: dict[str, Any] should be replaced into always predictable dict
 # meaning that Any is a dict with `str` key and values are 3 'str' and 4th
 # is a list[str]
-def wifi_client_set_config(nmc: NM.Client, network_config: Dict[str, Any]) -> str:
-    response: Union[str, Exception] = ""
+def wifi_client_set_config(nmc: NM.Client, network_config: Dict[str, Any]) -> None:
+    exception: Optional[Exception] = None
+    # There is assumption that we have just one entry in network_config and
+    # it is name of our wifi interface ("wifi1") but we don't verify it here
+    # probably under assumption that  this is our internal interface and that we
+    # have tested it well enough to be sure it will be always the case
+    # TODO switch to GO client or make it less convoluted
     ifname = next(iter(network_config.keys()))
     connection_name = f'{ifname}-client'
-    iface_config = get_dict(network_config, ifname)
-    config = get_dict(iface_config, 'client')
-    is_enabled = get_bool(iface_config, 'is_enabled')
-    logger.info(f'wifi_client {config=}')
-    ssid = get_str(config, 'ssid')
-    key = get_str(config, 'key')
-    authentication = get_enum_str(config, 'authentication', ['auto', 'wpa-psk', 'wpa2-psk', 'wpa3-sae'])
-    if authentication == 'wpa-psk' or authentication == 'wpa2-psk':
-        allowed_ciphers = [['auto'], ['ccmp'], ['tkip'], ['ccmp', 'tkip']]
-    else:
-        allowed_ciphers = [['auto'], ['ccmp']]
-    encryption = get_enum_str_list(config, 'encryption', allowed_ciphers)
-    logger.info(f"config: set 'ssid' value '{ssid}'")
-    logger.info("config: set 'key' value '<hidden>'")
-    logger.info(f"config: set 'authentication' value '{authentication}'")
-    logger.info(f"config: set 'encryption' value '{' '.join(encryption)}'")
+    config = get_dict(network_config, ifname)
+    is_enabled = get_optional_bool(config, 'is_enabled')
+    if is_enabled is None:
+        wifi = nmc.get_device_by_iface(ifname)
+        active_connection = wifi.get_active_connection()
+        is_enabled = active_connection is not None and active_connection.get_id() == f"{ifname}-client"
+    shall_configure_connection = False
+    if is_enabled or len(config) > (1 if "is_enabled" in config else 0):
+        shall_configure_connection = True
+    if shall_configure_connection:
+        logger.info(f'wifi_client {config=}')
+        ssid = get_str(config, 'ssid')
+        key = get_str(config, 'key')
+        authentication = get_enum_str(config, 'authentication', ['auto', 'wpa-psk', 'wpa2-psk', 'wpa3-sae'])
+        if authentication == 'wpa-psk' or authentication == 'wpa2-psk':
+            allowed_ciphers = [['auto'], ['ccmp'], ['tkip'], ['ccmp', 'tkip']]
+        else:
+            allowed_ciphers = [['auto'], ['ccmp']]
+        encryption = get_enum_str_list(config, 'encryption', allowed_ciphers)
+        logger.info(f"config: set 'ssid' value '{ssid}'")
+        logger.info("config: set 'key' value '<hidden>'")
+        logger.info(f"config: set 'authentication' value '{authentication}'")
+        logger.info(f"config: set 'encryption' value '{' '.join(encryption)}'")
+
     wifi = nmc.get_device_by_iface(ifname)
     if wifi is None:
         raise InvalidPreconditionError(f"Device {ifname} is not available")
@@ -302,11 +314,11 @@ def wifi_client_set_config(nmc: NM.Client, network_config: Dict[str, Any]) -> st
         if active_connection_state == NM.ActiveConnectionState.ACTIVATING:
             return
 
-        nonlocal response
         if state == NM.DeviceState.ACTIVATED:
-            response = f"{RESPONSE_OK} Device {wifi.get_iface()} successfully activated"
+            pass
         elif state <= NM.DeviceState.DISCONNECTED or state >= NM.DeviceState.DEACTIVATING:
-            response = NMDeviceActivationError(device_reason_to_string(wifi.get_state_reason()))
+            nonlocal exception
+            exception = NMDeviceActivationError(device_reason_to_string(wifi.get_state_reason()))
         else:
             logger.info(f"Ingored state change to: {state}")
             return
@@ -326,16 +338,16 @@ def wifi_client_set_config(nmc: NM.Client, network_config: Dict[str, Any]) -> st
             connected_state_cb(active_connection=active_connection)
         except GLib.Error as error:
             loop.quit()
-            nonlocal response
-            response = NetworkManagerError(error.message)
+            nonlocal exception
+            exception = NetworkManagerError(error.message)
             event.set()
 
     def add_cb(client: NM.Client, result: Gio.AsyncResult, optional: NM.RemoteConnection) -> None:
         try:
-            remote_connection = client.add_connection_finish(result)
+            client.add_connection_finish(result)
         except GLib.Error as error:
-            nonlocal response
-            response = NetworkManagerError(error.message)
+            nonlocal exception
+            exception = NetworkManagerError(error.message)
         finally:
             event.set()
             loop.quit()
@@ -365,20 +377,27 @@ def wifi_client_set_config(nmc: NM.Client, network_config: Dict[str, Any]) -> st
                   connection_cb_info: ConnectionCbInfo) -> None:
         try:
             connection.delete_finish(result)
-            add_and_activate_connection()
+            if shall_configure_connection:
+                add_and_activate_connection()
+            else:
+                loop.quit()
+                event.set()
         except (GLib.Error, InvalidParameterError) as error:
             loop.quit()
-            nonlocal response
+            nonlocal exception
             if isinstance(error, GLib.Error):
-                response = NetworkManagerError(error.message)
+                exception = NetworkManagerError(error.message)
             else:
-                response = error
+                exception = error
             event.set()
 
-    if connection is None:
+    if connection is not None:
+        # After deleting we will readd connection if needed
+        connection.delete_async(None, delete_cb, None)
+    elif shall_configure_connection:
         add_and_activate_connection()
     else:
-        connection.delete_async(None, delete_cb, None)
+        return
 
     # UNDER ANY CIRCUMSTANCES DO NOT TOUCH THIS AS IT IS INTENTIONALLY PUTTED IN HERE
     # AS IT MANAGES ALL THE AVAILABLE SOURCES OF EVENTS FOR GLIB AND GTK+ APPLICATIONS
@@ -387,7 +406,5 @@ def wifi_client_set_config(nmc: NM.Client, network_config: Dict[str, Any]) -> st
     loop.run()
     event.wait()  # waiting for event to be set
 
-    if isinstance(response, Exception):
-        raise response
-
-    return response
+    if exception is not None:
+        raise exception
