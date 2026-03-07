@@ -4,13 +4,13 @@ import json
 from typing import Any, List
 
 
-@dataclass
+@dataclass(frozen=True)
 class SignalQuality:
     value: str
     recent: str
 
 
-@dataclass
+@dataclass(frozen=True)
 class Generic:
     unlock_required: str
     state: str
@@ -18,7 +18,7 @@ class Generic:
     access_technologies: List[str]
 
 
-@dataclass
+@dataclass(frozen=True)
 class Modem3gpp:
     imei: str
     operator_id: str
@@ -26,7 +26,7 @@ class Modem3gpp:
     registration_state: str
 
 
-@dataclass
+@dataclass(frozen=True)
 class SignalMetrics:
     rxlev:   int | None = None
     ber:  int | None = None
@@ -37,7 +37,7 @@ class SignalMetrics:
     rssi: int | None = None
 
 
-@dataclass
+@dataclass(frozen=True)
 class Sim:
     iccid: str | None = None
     imsi: str | None = None
@@ -46,7 +46,7 @@ class Sim:
     status: str | None = None
 
 
-@dataclass
+@dataclass(frozen=True)
 class ModemInfo:
     generic: Generic
     modem3gpp: Modem3gpp | None = None
@@ -54,15 +54,7 @@ class ModemInfo:
     sim: Sim | None = None
 
     def to_dict(self) -> dict[str, Any]:
-
-        modem_d: dict[str, object] = {"generic": asdict(self.generic)}
-        if self.modem3gpp:
-            modem_d["3gpp"] = asdict(self.modem3gpp)
-        if self.signalmetrics:
-            modem_d["signalmetrics"] = asdict(self.signalmetrics)
-        if self.sim:
-            modem_d["sim"] = asdict(self.sim)
-        return modem_d
+        return asdict(self)
 
     def to_json(self, indent: int = 2) -> str:
         return json.dumps(self.to_dict(), indent=indent)
