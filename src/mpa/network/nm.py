@@ -138,11 +138,11 @@ def cellular() -> None:
     """
 
 
-@cellular.command_with_client("debug")
+@cellular.command_with_client("status")
 @interface_number_argument_decorator
 def cellular_debug(client: Client, interface: int) -> None:
     data = {"interface": interface}
-    client.query(topics.net.cellular.debug, data, exiting_print_message)
+    client.query(topics.net.cellular.status, data, exiting_print_message)
 
 
 # TODO add at_boot vs. now (and unify other commands which shall have this distinction)

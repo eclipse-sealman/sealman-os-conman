@@ -186,9 +186,9 @@ def get_cellular_config(interface: int) -> Union[None, str, Mapping[str, Any]]:
     return config
 
 
-def net_cellular_debug(message: Optional[bytes] = None) -> Union[None, str, Mapping[str, Any]]:
+def net_cellular_status(message: Optional[bytes] = None) -> Union[None, str, Mapping[str, Any]]:
     if message is None:
-        raise RuntimeError("Message needs to be provided to net_cellular_debug")
+        raise RuntimeError("Message needs to be provided to net_cellular_status")
     payload = json.loads(message)
     interface = get_int(payload, "interface")
     modem_data = get_modem_info(interface)
@@ -849,7 +849,7 @@ def main() -> None:
     messages[topics.net.cellular.set_config] = guarded(sync(net_cellular_set_config))
     messages[topics.net.cellular.change_state] = guarded(sync(net_cellular_change_state))
     messages[topics.net.cellular.check] = guarded(sync(cellular_checklist))
-    messages[topics.net.cellular.debug] = guarded(sync(net_cellular_debug))
+    messages[topics.net.cellular.status] = guarded(sync(net_cellular_status))
     in_bg(topics.net.wifi.client.scan, guarded(net_wifi_client_scan))
     in_bg(topics.net.wifi.client.set_config, guarded(net_wifi_client_set_config))
     in_bg(topics.net.wifi.client.change_state, guarded(net_wifi_client_change_state))
