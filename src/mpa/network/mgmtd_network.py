@@ -203,8 +203,8 @@ def net_cellular_debug(message: Optional[bytes] = None) -> Union[None, str, Mapp
             "rsrq": data["signalmetrics"]["rsrq"],
             "operator_name": data["sim"]["operator_name"],
             "operator_id": data["sim"]["operator_id"],
-            "registration": data["3gpp"]["registration_state"],
-            "imei": data["3gpp"]["imei"],
+            "registration": data["modem3gpp"]["registration_state"],
+            "imei": data["modem3gpp"]["imei"],
             "iccid": data["sim"]["iccid"],
             "imsi": data["sim"]["imsi"],
             "sim_state": data["sim"]["status"]
