@@ -175,7 +175,7 @@ class net:
         set_config = "net.cellular.set_config"
         change_state = "net.cellular.change_state"
         check = "net.cellular.check"
-        debug = "net.cellular.debug"
+        status = "net.cellular.status"
 
     class wifi:
         class client:
