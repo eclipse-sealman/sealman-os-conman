@@ -195,19 +195,19 @@ def net_cellular_debug(message: Optional[bytes] = None) -> Union[None, str, Mapp
     if modem_data:
         data = modem_data.to_dict()
         response = {
-            "status": data["generic"]["state"],
-            "fail_reason": data["generic"]["state_failed_reason"],
-            "access_technology": data["generic"]["access_technologies"],
-            "rssi": data["signalmetrics"]["rssi"],
-            "rsrp": data["signalmetrics"]["rsrp"],
-            "rsrq": data["signalmetrics"]["rsrq"],
-            "operator_name": data["sim"]["operator_name"],
-            "operator_id": data["sim"]["operator_id"],
-            "registration": data["modem3gpp"]["registration_state"],
-            "imei": data["modem3gpp"]["imei"],
-            "iccid": data["sim"]["iccid"],
-            "imsi": data["sim"]["imsi"],
-            "sim_state": data["sim"]["status"]
+            "status": data.get("generic", {}).get("state", None),
+            "fail_reason": data.get("generic", {}).get("state_failed_reason", None),
+            "access_technology": data.get("generic", {}).get("access_technologies", None),
+            "rssi": data.get("signalmetrics", {}).get("rssi", None),
+            "rsrp": data.get("signalmetrics", {}).get("rsrp", None),
+            "rsrq": data.get("signalmetrics", {}).get("rsrq", None),
+            "operator_name": data.get("sim", {}).get("operator_name", None),
+            "operator_id": data.get("sim", {}).get("operator_id", None),
+            "registration": data.get("modem3gpp", {}).get("registration_state", None),
+            "imei": data.get("modem3gpp", {}).get("imei", None),
+            "iccid": data.get("sim", {}).get("iccid", None),
+            "imsi": data.get("sim", {}).get("imsi", None),
+            "sim_state": data.get("sim", {}).get("status", None)
         }
         return response
     else:

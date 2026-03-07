@@ -54,7 +54,7 @@ class ModemInfo:
     sim: Sim | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        return asdict(self, dict_factory=lambda x: {k: v for (k, v) in x if v is not None})
 
     def to_json(self, indent: int = 2) -> str:
         return json.dumps(self.to_dict(), indent=indent)
