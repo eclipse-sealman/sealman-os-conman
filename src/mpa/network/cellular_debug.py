@@ -91,7 +91,7 @@ def _build_signal_metrics(cesq: str, csq: str) -> SignalMetrics:
         if value in (99, 255):
             return None
         # TODO value between 99 and 255 shall never occur, consider using below assert or some logging in case it happens
-        #assert value < 100
+        # assert value < 100
         return value
 
     return SignalMetrics(
