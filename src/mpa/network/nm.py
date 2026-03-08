@@ -342,8 +342,8 @@ def wifi_ap_status(client: Client) -> None:
 @ap.command_with_client("config", timeout_ms=60_000)
 @click.option("-s", "--ssid", default="EdgeGateway", show_default=True, help="SSID for the access point.")
 @click.option("-k", "--key", default="ap-password", help="PSK for the access point.")
-@click.option("-a", "--authentication", type=click.Choice(["wpa-psk", "wpa2-psk", "wpa3-sae"]),
-              default="wpa2-psk", show_default=True, help="Authentication method.")
+@click.option("-a", "--authentication", type=click.Choice(["wpa-psk", "wpa2-psk", "wpa3-sae", "wpa2-wpa3"]),
+              default="wpa2-wpa3", show_default=True, help="Authentication method.")
 @click.option("-e", "--encryption", default=["ccmp"], show_default=True, multiple=True,
               type=click.Choice(["ccmp", "tkip"]),
               help="Encryption mode CCMP and/or TKIP.")

@@ -120,25 +120,29 @@ func (cfg *AccessPointPConfig) BuildSettings() (map[string]map[string]dbus.Varia
 		settings["ipv4"]["gateway"] = dbus.MakeVariant(cfg.Gateway)
 	}
 
-	if cfg.Authentication != "" && cfg.Authentication != "none" {
-		var keyMgmt string
+	if cfg.Authentication != "" {
+		var keyMgmt []string
 		var proto []string
 
 		switch cfg.Authentication {
-		case "wpa2", "wpa2-psk":
-			keyMgmt = "wpa-psk"
+		case "wpa-psk":
+			keyMgmt = []string{"wpa-psk"}
+			proto = []string{"wpa"}
+
+		case "wpa2-psk":
+			keyMgmt = []string{"wpa-psk"}
 			proto = []string{"rsn"}
 
-		case "wpa3":
-			keyMgmt = "sae"
+		case "wpa3-sae":
+			keyMgmt = []string{"sae"}
 			proto = []string{"rsn"}
 
-		case "wpa2-wpa3", "mixed":
-			keyMgmt = "sae"
+		case "wpa2-wpa3":
+			keyMgmt = []string{"wpa-psk", "sae"}
 			proto = []string{"rsn"}
 
 		default:
-			keyMgmt = cfg.Authentication
+			return nil, fmt.Errorf("invalid authentication: %s", cfg.Authentication)
 		}
 
 		security := map[string]dbus.Variant{
