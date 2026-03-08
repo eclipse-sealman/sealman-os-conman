@@ -345,12 +345,15 @@ def wifi_ap_status(client: Client) -> None:
 @click.option("-a", "--authentication", type=click.Choice(["wpa-psk", "wpa2-psk", "wpa3-sae"]),
               default="wpa2-psk", show_default=True, help="Authentication method.")
 @click.option("-e", "--encryption", default=["ccmp"], show_default=True, multiple=True,
-              type=click.Choice(["auto", "ccmp", "tkip"]),
+              type=click.Choice(["ccmp", "tkip"]),
               help="Encryption mode CCMP and/or TKIP.")
 @click.option("-c", "--channel", type=int, default=6, show_default=True, help="WiFi channel (1-13).")
 @click.option("--hidden/--no-hidden", default=False, show_default=True, help="Hide SSID in beacons.")
+@click.option("-A", "--ip", required=True, help="IP Address.")
+@click.option("-S", "--subnet", required=True, type=int, help="Subnet mask (number of bits, so use 24 instead of 255.255.255.0).")
 def wifi_ap_config(client: Client, ssid: str, key: str, authentication: str,
-                   encryption: list[str], channel: int, hidden: bool) -> None:
+                   encryption: list[str], channel: int, hidden: bool,
+                   ip: str, subnet: int) -> None:
     """Configure parameters of Access Point on wifi1.
 
     Connection state will not be affected, although if AP was active it might be
@@ -366,6 +369,8 @@ def wifi_ap_config(client: Client, ssid: str, key: str, authentication: str,
             "encryption": list(encryption),
             "channel": channel,
             "hidden": hidden,
+            "ip": [ip],
+            "subnet": [subnet]
         }
     }
     client.query(topics.net.wifi.ap.set_config, request, handler=exiting_print_message)
