@@ -12,6 +12,9 @@
 #
 from enum import Enum
 
+from mpa.communication.common import get_lan_interfaces
+from mpa.network.wifi_common import get_wifi_interfaces
+
 
 class NetlinkEvents(Enum):
     RTM_NEWNEIGH = "RTM_NEWNEIGH"
@@ -35,3 +38,5 @@ TYPES = ["nat", "local", "unicast", "broadcast", "multicast"] + GLOBAL_ROUTES
 SCOPES = ["link", "host", "global"]
 MPA = 200
 DEFAULT_VLAN_METRIC = 101
+
+LAN_WIFI_INTERFACES = list(get_lan_interfaces() | get_wifi_interfaces())

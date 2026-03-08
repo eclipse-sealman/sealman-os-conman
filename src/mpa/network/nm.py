@@ -22,7 +22,7 @@ import click
 # Local imports
 import mpa.communication.topics as topics
 from mpa.communication.message_parser import get_dict, get_optional_bool, get_optional_dict, get_optional_str
-from .common import SCOPES, TYPES, DEFAULT_VLAN_METRIC
+from .common import SCOPES, TYPES, DEFAULT_VLAN_METRIC, LAN_WIFI_INTERFACES
 from mpa.common.cli import (
     custom_group,
     interface_number_argument_decorator,
@@ -701,7 +701,7 @@ def dhcp_server_list(client: Client) -> None:
 
 
 @dhcp_server.command_with_client(name="enable")
-@click.argument("interface", type=click.Choice(LAN_INTERFACES))
+@click.argument("interface", type=click.Choice(LAN_WIFI_INTERFACES))
 def dhcp_server_enable(client: Client, interface: str) -> None:
     """Enable DHCP Server on a given interface."""
     client.query(
@@ -712,7 +712,7 @@ def dhcp_server_enable(client: Client, interface: str) -> None:
 
 
 @dhcp_server.command_with_client(name="disable")
-@click.argument("interface", type=click.Choice(LAN_INTERFACES))
+@click.argument("interface", type=click.Choice(LAN_WIFI_INTERFACES))
 def dhcp_server_disable(client: Client, interface: str) -> None:
     """Disable DHCP Server on a given interface."""
     client.query(
@@ -728,7 +728,7 @@ def dhcp_server_disable(client: Client, interface: str) -> None:
 @click.option("-l", "--lease-time", default=3600, show_default=True, help="Lease time in seconds.")
 @click.option("-d", "--dns", help="DNS Server(s) to be provided to the client seperated by ',' (eg 8.8.8.8,1.1.1.1).")
 @click.option("-g", "--gateway", help="Gateway to be provided to the client (eg 192.168.2.1).")
-@click.argument("interface", type=click.Choice(LAN_INTERFACES))
+@click.argument("interface", type=click.Choice(LAN_WIFI_INTERFACES))
 def dhcp_server_config(client: Client, ip_range: str, lease_time: int, dns: str, gateway: str, interface: str) -> None:
     """Configure the DHCP Server.
 
