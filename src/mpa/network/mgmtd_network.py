@@ -64,6 +64,7 @@ from mpa.communication.process import run_command, run_command_unchecked
 from mpa.communication.status_codes import SUCCESS
 from mpa.config.common import CONFIG_DIR_ROOT
 from mpa.device.common import RESOLVED_CONF, LINK_TO_RESOLVED_CONF, CaseSensitiveConfigParser
+from mpa.network.common import LAN_WIFI_INTERFACES
 from mpa.network.cellular_check import CellularCheck
 from mpa.network.dhcp_server import Dhcp4Server
 from mpa.network.cellular_debug import get_modem_info
@@ -107,7 +108,6 @@ get_config_data = GetConfigData()
 
 CELLULAR_CONFIG_FILE_PATTERN = str(CONFIG_DIR_ROOT / "cellular{interface}.conf")
 ALLOWED_INTERFACES = get_lan_interfaces() | get_wifi_interfaces() | {"cellular1", "cellular2"}
-LAN_INTERFACES = get_lan_interfaces()
 NET_WIFI_CLIENT_SCAN_LOCK = InterProcessLock(CONFIG_DIR_ROOT / "mgmtd/net.wifi.client.scan.lock", stale_lock_seconds=600)
 NET_WIFI_CLIENT_STATE_LOCK = InterProcessLock(CONFIG_DIR_ROOT / "mgmtd/net.wifi.client.state.lock", stale_lock_seconds=600)
 NET_WIFI_SET_CONFIG = "net_wifi_set_config"
@@ -760,8 +760,8 @@ def change_ids_state(message: bytes) -> None:
 def dhcp_server_verify_and_fill_config_if_needed(config: dict[str, Any]) -> None:
     network_to_interface: dict[str, str] = {}
     for interface, subnet_config in config.items():
-        if interface not in LAN_INTERFACES:
-            raise InvalidParameterError(f"Interface '{interface}' not in allowed intefaces '{LAN_INTERFACES}'")
+        if interface not in LAN_WIFI_INTERFACES:
+            raise InvalidParameterError(f"Interface '{interface}' not in allowed intefaces '{LAN_WIFI_INTERFACES}'")
 
         enabled = get_bool(subnet_config, "enabled")
         is_iface_dhcp = is_dhcp(interface)
@@ -802,8 +802,8 @@ def dhcp_server_set_interface_state(message: bytes) -> None:
     payload = json.loads(message)
     interface = get_str(payload, "interface")
     enabled = get_bool(payload, "enabled")
-    if interface not in LAN_INTERFACES:
-        raise InvalidParameterError(f"Interface '{interface}' not in allowed intefaces '{LAN_INTERFACES}'")
+    if interface not in LAN_WIFI_INTERFACES:
+        raise InvalidParameterError(f"Interface '{interface}' not in allowed intefaces '{LAN_WIFI_INTERFACES}'")
 
     config = _dhcp_server_get_config()
     if config[interface]["ip_range"] is None:
@@ -820,7 +820,7 @@ def _dhcp_server_get_config() -> dict[str, Any]:
         config = Dhcp4Server().get_eg_config()
         logger.error(e)
 
-    for iface in LAN_INTERFACES:
+    for iface in LAN_WIFI_INTERFACES:
         if iface not in config:
             config[iface] = {
                 "enabled": False,
