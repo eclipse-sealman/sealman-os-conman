@@ -97,8 +97,9 @@ func (cfg *AccessPointPConfig) BuildSettings() (map[string]map[string]dbus.Varia
 
 	settings := map[string]map[string]dbus.Variant{
 		"connection": {
-			"id":   dbus.MakeVariant(AccessPointID),
-			"type": dbus.MakeVariant("802-11-wireless"),
+			"id":             dbus.MakeVariant(AccessPointID),
+			"type":           dbus.MakeVariant("802-11-wireless"),
+			"interface-name": dbus.MakeVariant(InterfaceName),
 		},
 		"802-11-wireless": {
 			"ssid":    dbus.MakeVariant([]byte(cfg.SSID)),
@@ -121,25 +122,28 @@ func (cfg *AccessPointPConfig) BuildSettings() (map[string]map[string]dbus.Varia
 	}
 
 	if cfg.Authentication != "" {
-		var keyMgmt []string
+		var keyMgmt string
 		var proto []string
+		var pmf int
 
 		switch cfg.Authentication {
 		case "wpa-psk":
-			keyMgmt = []string{"wpa-psk"}
+			keyMgmt = "wpa-psk"
 			proto = []string{"wpa"}
 
 		case "wpa2-psk":
-			keyMgmt = []string{"wpa-psk"}
-			proto = []string{"rsn"}
-
-		case "wpa3-sae":
-			keyMgmt = []string{"sae"}
+			keyMgmt = "wpa-psk"
 			proto = []string{"rsn"}
 
 		case "wpa2-wpa3":
-			keyMgmt = []string{"wpa-psk", "sae"}
+			keyMgmt = "wpa-psk"
 			proto = []string{"rsn"}
+			pmf = 2
+
+		case "wpa3-sae":
+			keyMgmt = "sae"
+			proto = []string{"rsn"}
+			pmf = 3
 
 		default:
 			return nil, fmt.Errorf("invalid authentication: %s", cfg.Authentication)
@@ -148,6 +152,7 @@ func (cfg *AccessPointPConfig) BuildSettings() (map[string]map[string]dbus.Varia
 		security := map[string]dbus.Variant{
 			"key-mgmt": dbus.MakeVariant(keyMgmt),
 			"proto":    dbus.MakeVariant(proto),
+			"pmf":      dbus.MakeVariant(pmf),
 		}
 
 		if cfg.Key != "" {
