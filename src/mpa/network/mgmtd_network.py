@@ -338,6 +338,8 @@ def net_set_config(message: bytes) -> None:
                 save_wifi_config(config)
                 is_enabled = get_bool(config, 'is_enabled')
                 wifi_mode = get_optional_enum_str(config, 'mode', ['ap', 'client'])
+                if interface in dhcp_server_config and wifi_mode == 'client' and is_enabled:
+                    raise InvalidPayloadError("DHCP Server can only be bound to interfaces with static IP.")
                 for target in ["ap", "client"]:
                     target_config = get_dict(config, target).copy()
                     target_config["is_enabled"] = wifi_mode == target and is_enabled
@@ -718,6 +720,9 @@ def net_wifi_change_state(mode: str, message: bytes) -> None:
     """
     with NET_WIFI_CLIENT_STATE_LOCK.transaction("Global lock for changing state of existing wifi connection profile"):
         logger.info('net_wifi_client_change_state')
+        is_enabled=get_bool(json.loads(message), "is_enabled")
+        if mode == "client" and is_enabled and "wifi1" in _dhcp_server_get_config():
+            raise InvalidPreconditionError("DHCP Server is enabled on wifi1 so client mode cannot be set on this interface")
         wifi_change_state(_nmc, mode, "wifi1", is_enabled=get_bool(json.loads(message), "is_enabled"))
 
 

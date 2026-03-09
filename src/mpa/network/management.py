@@ -202,6 +202,13 @@ def if_nm_param_is_equal(param: str, value: str, target: str, command: str = 'co
 
 
 def is_dhcp(interface: str) -> bool:
+    # For wifi ap is always static, and client is always using dhcp
+    if interface.startswith("wifi"):
+        connection = f"{interface}-ap"
+        if is_connection_available(connection) and if_nm_param_is_equal("connection.autoconnect", "yes", connection):
+            return False
+        return True
+    # For non-wifi interfaces connection name is identical as interface name!
     return if_nm_param_is_equal("ipv4.method", "auto", interface)
 
 
