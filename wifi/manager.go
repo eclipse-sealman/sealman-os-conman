@@ -93,6 +93,15 @@ func (m *WiFiManager) AccessPointChangeState(enabled bool) error {
 	return nil
 }
 
+func (m *WiFiManager) AccessPointIsEnabled() (bool, error) {
+	active, err := m.device.ActiveConnection()
+	if err != nil {
+		return false, err
+	}
+
+	return active != nil, nil
+}
+
 func (m *WiFiManager) AccessPointGetConnection() (*nm.ConnectionProfile, error) {
 	profile, err := m.settings.FindConnectionById(AccessPointID)
 	if err != nil {
