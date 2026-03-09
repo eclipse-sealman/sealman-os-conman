@@ -33,8 +33,18 @@ func setConfig(r wifi.WiFiConfig) {
 			if err := profile.Update(desired); err != nil {
 				panic(fmt.Errorf("failed to update connection settings: %w", err))
 			}
+
+			enabled, err := manager.AccessPointIsEnabled()
+			if err != nil {
+				panic(fmt.Errorf("failed to read active connection: %w", err))
+			}
+
+			if enabled {
+				r.Enabled = &enabled
+			}
 		}
 	}
+
 	if r.Enabled != nil {
 		if err = manager.AccessPointChangeState(*r.Enabled); err != nil {
 			panic(err)
