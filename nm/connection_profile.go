@@ -2,6 +2,7 @@ package nm
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/godbus/dbus/v5"
 )
@@ -135,20 +136,28 @@ func ParseIPv4Config(settings map[string]map[string]dbus.Variant) ([]string, []i
 func ParseSecurityConfig(c *ConnectionProfile, settings map[string]map[string]dbus.Variant) (string, string, []string, error) {
 	sec, err := getSection(settings, "802-11-wireless-security")
 	if err != nil {
-		return "none", "", nil, nil
+		return "", "", nil, nil
 	}
 
 	var auth string
 	if km, err := getVariantValue[string](sec, "key-mgmt"); err == nil {
+		proto, _ := getVariantValue[[]string](sec, "proto")
+		pmf, _ := getVariantValue[int32](sec, "pmf")
+
 		switch km {
 		case "wpa-psk":
-			auth = "wpa2"
+			if slices.Compare(proto, []string{"rsn"}) == 0 {
+				if pmf == 2 {
+					auth = "wpa2-wpa3"
+				} else {
+					auth = "wpa2-psk"
+				}
+			} else {
+				auth = "wpa-psk"
+			}
+
 		case "sae":
-			auth = "wpa3"
-		case "none":
-			auth = "none"
-		default:
-			auth = km
+			auth = "wpa3-sae"
 		}
 	}
 
