@@ -186,9 +186,11 @@ def cellular_set(client: Client, interface: int, mode: str) -> None:
 @click.option("-u", "--user", help="User name for APN")
 @click.option("-P", "--password", help="Password for APN.")
 @click.option("-f", "--force_pap", is_flag=True)
+@click.option("-m", "--mtu", default=0, type=int, help="MTU value for cellular connection. 0 for auto.")
+
 @interface_number_argument_decorator
 def cellular_configure(client: Client, interface: int, pin: str, apn: str, access_number: str, user: str,
-                       password: str, force_pap: bool) -> None:
+                       password: str, force_pap: bool, mtu: int) -> None:
     data = {
         "apn": apn,
         "pin": pin or "",
@@ -196,7 +198,8 @@ def cellular_configure(client: Client, interface: int, pin: str, apn: str, acces
         "username": user or "",
         "password": password or "",
         "interface": interface,
-        "force_pap": force_pap
+        "force_pap": force_pap,
+        "mtu": mtu
     }
     client.query(topics.net.cellular.set_config, data, exiting_print_message)
 
