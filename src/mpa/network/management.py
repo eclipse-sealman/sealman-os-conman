@@ -149,6 +149,15 @@ def turn_on_cellular(config: Mapping[str, str], interface: int) -> None:
     if "force_pap" in config and config["force_pap"]:
         run_command(f'nmcli con mod cellular{interface} ppp.refuse-chap yes ppp.refuse-mschap yes ppp.refuse-mschapv2 \
                       yes ppp.refuse-eap yes')
+    if "mtu" in config:
+        if int(config["mtu"]) == 0:
+            run_command(f'nmcli con mod cellular{interface} ipv6.mtu auto')
+            run_command(f'nmcli con mod cellular{interface} ppp.mtu auto')
+            run_command(f'nmcli con mod cellular{interface} gsm.mtu auto')
+        else:
+            run_command(f'nmcli con mod cellular{interface} ipv6.mtu {config["mtu"]}')
+            run_command(f'nmcli con mod cellular{interface} ppp.mtu {config["mtu"]}')
+            run_command(f'nmcli con mod cellular{interface} gsm.mtu {config["mtu"]}')
     else:
         run_command(f'nmcli con mod cellular{interface} ppp.refuse-chap no ppp.refuse-mschap no ppp.refuse-mschapv2 \
                       no ppp.refuse-eap no')
