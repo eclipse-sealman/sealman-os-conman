@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 
 	"github.com/eclipse-sealman/sealman-os-conman/jsonsocket"
@@ -13,46 +12,8 @@ import (
 var manager *wifi.WiFiManager
 
 func setConfig(r wifi.WiFiConfig) {
-	profile, err := manager.AccessPointGetConnection()
-	if err != nil {
+	if err := manager.SetConfig(&r); err != nil {
 		panic(err)
-	}
-
-	if r.AP != nil {
-		desired, err := r.AP.BuildSettings()
-		if err != nil {
-			panic(err)
-		}
-
-		if profile == nil {
-			profile, err = manager.AddConnection(desired)
-			if err != nil {
-				panic(fmt.Errorf("failed to create connection: %w", err))
-			}
-		} else {
-			if err := profile.Update(desired); err != nil {
-				panic(fmt.Errorf("failed to update connection settings: %w", err))
-			}
-
-			enabled, err := manager.AccessPointIsEnabled()
-			if err != nil {
-				panic(fmt.Errorf("failed to read active connection: %w", err))
-			}
-
-			if enabled {
-				r.Enabled = &enabled
-			}
-		}
-	}
-
-	if r.Enabled != nil {
-		if err = manager.AccessPointChangeState(*r.Enabled); err != nil {
-			panic(err)
-		}
-
-		if r.AP == nil && !*r.Enabled && profile != nil {
-			profile.Delete()
-		}
 	}
 }
 
@@ -60,6 +21,7 @@ func changeState(r wifi.WiFiConfig) {
 	if r.Enabled == nil {
 		panic("is_enabled is required")
 	}
+
 	if err := manager.AccessPointChangeState(*r.Enabled); err != nil {
 		panic(err)
 	}
@@ -70,7 +32,14 @@ func getConfig() wifi.WiFiConfig {
 	if err != nil {
 		panic(err)
 	}
+
 	return *config
+}
+
+func restart() {
+	if err := manager.AccessPointRestart(); err != nil {
+		panic(err)
+	}
 }
 
 func main() {
@@ -85,6 +54,7 @@ func main() {
 	jsonsocket.Handle("change_state", changeState)
 	jsonsocket.Handle("set_config", setConfig)
 	jsonsocket.Handle("get_config", getConfig)
+	jsonsocket.Handle("restart", restart)
 
 	listener, err := mgmtd.CreateMgmtdUnixListener("/run/mgmtd/wifi_daemon")
 	if err != nil {

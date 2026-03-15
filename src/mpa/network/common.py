@@ -40,3 +40,4 @@ MPA = 200
 DEFAULT_VLAN_METRIC = 101
 
 LAN_WIFI_INTERFACES = list(get_lan_interfaces() | get_wifi_interfaces())
+AVAILABLE_REGDOMS = ["", "DE", "PL", "BE"]

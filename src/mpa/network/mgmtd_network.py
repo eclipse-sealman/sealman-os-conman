@@ -24,6 +24,7 @@ import re
 import sys
 from collections import defaultdict
 from functools import partial
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, MutableMapping, Optional, Set, Tuple, Union
 
 # Third party imports
@@ -63,8 +64,9 @@ from mpa.communication.message_parser import (
 from mpa.communication.process import run_command, run_command_unchecked
 from mpa.communication.status_codes import SUCCESS
 from mpa.config.common import CONFIG_DIR_ROOT
+from mpa.config.configfiles import ConfigFiles
 from mpa.device.common import RESOLVED_CONF, LINK_TO_RESOLVED_CONF, CaseSensitiveConfigParser
-from mpa.network.common import LAN_WIFI_INTERFACES
+from mpa.network.common import AVAILABLE_REGDOMS, LAN_WIFI_INTERFACES
 from mpa.network.cellular_check import CellularCheck
 from mpa.network.dhcp_server import Dhcp4Server
 from mpa.network.cellular_debug import get_modem_info
@@ -74,10 +76,10 @@ from mpa.network.management import (
     is_dhcp,
 )
 from mpa.network.wifi_client import wifi_client_scan, wifi_client_set_config
-from mpa.network.wifi_daemon_client import daemon_ap_set_config
+from mpa.network.wifi_daemon_client import daemon_ap_set_config, daemon_ap_restart, daemon_ap_disable
 from mpa.network.wifi_common import (
     get_wifi_config, get_wifi_interfaces, wifi_change_state,
-    save_wifi_config,
+    restart_wifi_client, save_wifi_config,
 )
 
 gi.require_version(
@@ -112,6 +114,10 @@ NET_WIFI_CLIENT_SCAN_LOCK = InterProcessLock(CONFIG_DIR_ROOT / "mgmtd/net.wifi.c
 NET_WIFI_CLIENT_STATE_LOCK = InterProcessLock(CONFIG_DIR_ROOT / "mgmtd/net.wifi.client.state.lock", stale_lock_seconds=600)
 NET_WIFI_SET_CONFIG = "net_wifi_set_config"
 
+config_files: ConfigFiles = ConfigFiles()
+REGDOM_CONFIG = config_files.add("regdom", "eg/regdom.conf")
+config_files.verify()
+
 _parser = argparse.ArgumentParser(prog='Network config daemon')
 com_client.add_command_line_params(_parser)
 _args = _parser.parse_args()
@@ -123,9 +129,23 @@ _client = com_client.Client(args=_args)
 _nmc = NM.Client.new(None)
 
 
-def write_json(filename: str, payload: Mapping[str, Any]) -> None:
+def write_json(filename: str | Path, payload: Mapping[str, Any]) -> None:
     with open(filename, "w") as file:
         json.dump(payload, file, sort_keys=False, indent=4)
+
+
+def read_json(filename: str | Path) -> Optional[MutableMapping[str, Any]]:
+    try:
+        with open(filename, "r") as file:
+            config = file.read()
+            retval = json.loads(config)
+            if isinstance(retval, abc.MutableMapping):
+                return retval
+            logger.error(f"File '{filename}' not parsed to mapping.")
+            return None
+    except IOError:
+        logger.warning("File not accessible")
+        return None
 
 
 def net_cellular_set_config(message: Optional[bytes] = None,
@@ -165,19 +185,6 @@ def net_cellular_set_config(message: Optional[bytes] = None,
 
 
 def get_cellular_config(interface: int) -> Union[None, str, Mapping[str, Any]]:
-    def read_json(filename: str) -> Optional[MutableMapping[str, Any]]:
-        try:
-            with open(filename, "r") as file:
-                config = file.read()
-                retval = json.loads(config)
-                if isinstance(retval, abc.MutableMapping):
-                    return retval
-                logger.error(f"File '{filename}' not parsed to mapping - invalid modem config.")
-                return None
-        except IOError:
-            logger.warning("File not accessible - modem was not configured.")
-            return None
-
     primart_port = mpa.network.management.get_cellular_primary_port(interface)
 
     if not mpa.network.management.device_exists(primart_port):
@@ -309,6 +316,10 @@ def net_set_config(message: bytes) -> None:
     # TODO this shall be probably transaction with ability to roll back partiall
     payload = json.loads(message)
     network_config = get_dict(payload, "network")
+
+    localization = network_config.pop("wifi-localization", "")
+    _wifi_localization_set_config({"wifi-localization": localization}, restart_or_disable_wifi="wifi1" not in network_config)
+
     if "dhcp_server" in payload:
         dhcp_server_config = payload["dhcp_server"]
         shall_update_dhcp_config = True
@@ -333,6 +344,9 @@ def net_set_config(message: bytes) -> None:
                     interface_number = int(re.findall(r'\d+', interface)[0])
                     config["interface"] = interface_number  # add "interface" to config if not present
                 net_cellular_set_config(config=config)
+            # For now we support only one wifi interface and we deliberately use
+            # hardcoded "wifi1" so it will be easier to find places requiring change
+            # when we decide to support more than one wifi device
             elif interface.startswith("wifi"):
                 logger.info(f'net_set_config {config=}')
                 save_wifi_config(config)
@@ -434,6 +448,8 @@ def net_get_config() -> MutableMapping[str, Any]:
         "network": {},
         }
 
+    config["network"]["wifi-localization"] = wifi_localization_get_config()["wifi-localization"]
+
     networks = get_system_network_interfaces()
     for network in networks:
         if network.startswith("cellular"):
@@ -441,7 +457,7 @@ def net_get_config() -> MutableMapping[str, Any]:
             primary_port = mpa.network.management.get_cellular_primary_port(interface_number)
             if mpa.network.management.device_exists(primary_port):
                 config['network'][f'cellular{interface_number}'] = get_cellular_config(interface_number)
-        if network.startswith("wifi"):
+        if network == "wifi1":
             config = get_wifi_config(_nmc, network, config)
 
     config = get_eth_config(config)
@@ -627,7 +643,7 @@ def net_wifi_client_scan(message: bytes) -> Dict[Any, defaultdict[str, List[Dict
 
 
 def net_wifi_set_config(mode: str, message: Optional[bytes] = None,
-                               *, config: Optional[Dict[str, Any]] = None) -> None:
+                        *, config: Optional[Dict[str, Any]] = None) -> None:
     """
     Handles "net.wifi.client.set_config.req" and sets wifi network config.
 
@@ -721,12 +737,15 @@ def net_wifi_change_state(mode: str, message: bytes) -> None:
     with NET_WIFI_CLIENT_STATE_LOCK.transaction("Global lock for changing state of existing wifi connection profile"):
         logger.info('net_wifi_client_change_state')
         is_enabled=get_bool(json.loads(message), "is_enabled")
-        if mode == "client" and is_enabled and "wifi1" in _dhcp_server_get_config():
-            raise InvalidPreconditionError("DHCP Server is enabled on wifi1 so client mode cannot be set on this interface")
+        if mode == "client" and is_enabled:
+            dhcp_config = _dhcp_server_get_config()
+            if "wifi1" in dhcp_config and dhcp_config["wifi1"].get("enabled"):
+                raise InvalidPreconditionError("DHCP Server is enabled on wifi1 so client mode cannot be set on this interface")
         wifi_change_state(_nmc, mode, "wifi1", is_enabled=get_bool(json.loads(message), "is_enabled"))
 
 
 def cellular_checklist(message: bytes) -> str:
+    expect_empty_message(message, "cellular_checklist")
     cellular_check = CellularCheck()
     return f'{RESPONSE_OK} {cellular_check.cellular_check()}'
 
@@ -760,6 +779,37 @@ def change_ids_state(message: bytes) -> None:
         run_command(f'systemctl enable --now suricata@{interface}')
     elif not mode and is_enabled:
         run_command(f'systemctl disable --now suricata@{interface}')
+
+
+def _wifi_localization_set_config(config: dict[str, str], *, restart_or_disable_wifi: bool) -> None:
+    localization = get_optional_enum_str(config, "wifi-localization", AVAILABLE_REGDOMS)
+    current_localization = wifi_localization_get_config()["wifi-localization"]
+    if localization == current_localization:
+        return
+
+    regdom = "00" if localization == "" else localization
+    run_command(f"pkexec /usr/sbin/iw set {regdom}")
+    REGDOM_CONFIG.write_text(regdom.strip())
+
+    if restart_or_disable_wifi:
+        with NET_WIFI_CLIENT_STATE_LOCK.transaction("Lock for localization update"):
+            restart_wifi_client(_nmc)
+            if regdom != "00":
+                daemon_ap_restart()
+            else:
+                daemon_ap_disable()
+
+
+def wifi_localization_set_config(message: bytes, restart_or_disable_wifi: bool = True) -> None:
+    decoded_message = json.loads(message)
+    _wifi_localization_set_config(decoded_message, restart_or_disable_wifi=restart_or_disable_wifi)
+
+
+@empty_message_wrapper
+def wifi_localization_get_config(message: bytes) -> dict[str, str]:
+    regdom = REGDOM_CONFIG.read_text().strip()
+    localization = "" if regdom == "00" else regdom
+    return {"wifi-localization": localization}
 
 
 def dhcp_server_verify_and_fill_config_if_needed(config: dict[str, Any]) -> None:
@@ -891,6 +941,8 @@ def main() -> None:
     in_bg(topics.net.wifi.client.change_state, guarded(partial(net_wifi_change_state, 'client')))
     in_bg(topics.net.wifi.ap.set_config, guarded(partial(net_wifi_set_config, 'ap')))
     in_bg(topics.net.wifi.ap.change_state, guarded(partial(net_wifi_change_state, 'ap')))
+    in_bg(topics.net.wifi.localization.set_config, guarded(wifi_localization_set_config))
+    messages[topics.net.wifi.localization.get_config] = guarded(sync(wifi_localization_get_config))
     messages[topics.net.cellular.check] = guarded(sync(cellular_checklist))
     messages[topics.net.promiscous_mode.set_config] = guarded(sync(promiscous_mode_set_config))
     messages[topics.net.ids.change_state] = guarded(sync(change_ids_state))

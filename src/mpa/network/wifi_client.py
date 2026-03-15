@@ -352,7 +352,6 @@ def wifi_client_set_config(nmc: NM.Client, network_config: Dict[str, Any]) -> No
             event.set()
             loop.quit()
 
-
     def add_and_activate_connection() -> None:
         connection = create_wifi_connection(connection_name, ifname, ssid, key, authentication, encryption, is_enabled)
         dbus_path = None
@@ -360,18 +359,9 @@ def wifi_client_set_config(nmc: NM.Client, network_config: Dict[str, Any]) -> No
             # this is for determining access point's parameters to fill up missing connection settings
             dbus_path = get_access_point_dbus_path(wifi, ssid)
         if not is_enabled:
-            nmc.add_connection_async(connection,
-                                                True,
-                                                None,
-                                                add_cb,
-                                                None)
+            nmc.add_connection_async(connection, True, None, add_cb, None)
         else:
-            nmc.add_and_activate_connection_async(connection,
-                                                wifi,
-                                                dbus_path,
-                                                None,
-                                                add_and_activate_cb,
-                                                None)
+            nmc.add_and_activate_connection_async(connection, wifi, dbus_path, None, add_and_activate_cb, None)
 
     def delete_cb(connection: NM.RemoteConnection, result: Gio.AsyncResult,
                   connection_cb_info: ConnectionCbInfo) -> None:

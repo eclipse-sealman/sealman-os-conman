@@ -75,6 +75,11 @@ def daemon_ap_disable() -> None:
     assert retval is None
 
 
+def daemon_ap_restart() -> None:
+    retval = _send_to_wifi_daemon("restart", {})
+    assert retval is None
+
+
 def daemon_ap_get_config() -> dict[str, Any] | None:
     """Returns None if no AP profile exists."""
     try:

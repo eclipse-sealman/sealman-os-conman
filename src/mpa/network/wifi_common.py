@@ -51,6 +51,7 @@ logger = Logger(f"{sys.argv[0] if __name__ == '__main__' else __name__}")
 
 WIFI_CONFIG_FILE = str(CONFIG_DIR_ROOT / "eg" / "wifi-config.json")
 
+
 def save_wifi_config(config: MutableMapping[str, Any]) -> None:
     """Persist wifi config to file."""
     try:
@@ -790,6 +791,21 @@ def get_wifi_config(nmc: NM.Client, ifname: str, config: MutableMapping[str, Any
         interface_settings['mode'] = ''
     return config
 
+
+# TODO we share things between restart_wifi_client and wifi_change_state...
+# As we plan to switch to go for wifi, we tollerate this code duplication
+# temporarily
+def restart_wifi_client(nmc: NM.Client) -> None:
+    wifi1 = nmc.get_device_by_iface("wifi1")
+    if wifi1 is None:
+        return
+
+    active_connection = wifi1.get_active_connection()
+    if active_connection is not None and active_connection.get_id() == "wifi1-client":
+        ConnectionsManager(nmc, [active_connection], "disable").deactivate_connections()
+        ConnectionsManager(nmc, [active_connection], "enable").activate_connections()
+
+
 def wifi_change_state(nmc: NM.Client, mode: str, ifname: str, *, is_enabled: bool) -> str | None:
     wifi = nmc.get_device_by_iface(ifname)
     if wifi is None:
@@ -803,7 +819,6 @@ def wifi_change_state(nmc: NM.Client, mode: str, ifname: str, *, is_enabled: boo
         if active_connection is None or active_connection.get_id() != f"{ifname}-client":
             return None
         return ConnectionsManager(nmc, [active_connection], "disable").deactivate_connections()
-
 
     match (mode, is_enabled):
         case ("ap", True):
