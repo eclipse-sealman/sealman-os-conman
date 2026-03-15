@@ -3,14 +3,18 @@ package wifi
 import (
 	"errors"
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/eclipse-sealman/sealman-os-conman/nm"
 	"github.com/godbus/dbus/v5"
 )
 
 const (
-	AccessPointID = "wifi1-ap"
-	InterfaceName = "wifi1"
+	AccessPointID    = "wifi1-ap"
+	InterfaceName    = "wifi1"
+	RegdomConfigPath = "/etc/eg/regdom.conf"
+	RegdomGlobal     = "00"
 )
 
 type WiFiManager struct {
@@ -29,11 +33,19 @@ func NewWiFiManager(conn *dbus.Conn) *WiFiManager {
 	return &WiFiManager{nm: networkManager, settings: nm.NewSettings(conn), device: wifiDevice}
 }
 
-func (m *WiFiManager) Activate(connection *nm.ConnectionProfile) (*nm.ActiveConnection, error) {
+func (m *WiFiManager) activate(connection *nm.ConnectionProfile) (*nm.ActiveConnection, error) {
+	if err := connection.SetAutoconnect(true); err != nil {
+		return nil, err
+	}
+
 	return m.nm.ActivateConnectionOnDevice(connection, m.device)
 }
 
-func (m *WiFiManager) Deactivate() error {
+func (m *WiFiManager) deactivate(connection *nm.ConnectionProfile, connectionId string) error {
+	if err := connection.SetAutoconnect(false); err != nil {
+		return err
+	}
+
 	active, err := m.device.ActiveConnection()
 	if err != nil {
 		return err
@@ -48,7 +60,7 @@ func (m *WiFiManager) Deactivate() error {
 		return err
 	}
 
-	if id != AccessPointID {
+	if id != connectionId {
 		return nil
 	}
 
@@ -56,36 +68,13 @@ func (m *WiFiManager) Deactivate() error {
 }
 
 func (m *WiFiManager) AccessPointChangeState(enabled bool) error {
-	profile, err := m.AccessPointGetConnection()
-	if err != nil {
-		return err
-	}
-
-	if profile == nil && enabled {
-		return errors.New("access point is not configured")
-	} else if profile == nil {
-		return nil
-	}
-
 	if enabled {
-		err = profile.SetAutoconnect(true)
-		if err != nil {
-			return err
-		}
-
-		_, err := m.Activate(profile)
-		if err != nil {
+		if err := m.AccessPointActivate(); err != nil {
 			return fmt.Errorf("activation failed: %w", err)
 		}
 
 	} else {
-		err = profile.SetAutoconnect(false)
-		if err != nil {
-			return err
-		}
-
-		err = m.Deactivate()
-		if err != nil {
+		if err := m.AccessPointDeactivate(); err != nil {
 			return fmt.Errorf("deactivation failed: %w", err)
 		}
 	}
@@ -102,6 +91,59 @@ func (m *WiFiManager) AccessPointIsEnabled() (bool, error) {
 	return active != nil, nil
 }
 
+func (m *WiFiManager) AccessPointActivate() error {
+	profile, err := m.AccessPointGetConnection()
+	if err != nil {
+		return err
+	}
+
+	if profile == nil {
+		return errors.New("access point is not configured")
+	}
+
+	regdom, err := GetRegdom()
+	if err != nil {
+		return fmt.Errorf("failed to read regdom from %s", RegdomConfigPath)
+	}
+
+	if regdom == RegdomGlobal {
+		return errors.New("failed to activate access point in global regdom")
+	}
+
+	_, err = m.activate(profile)
+	return err
+}
+
+func (m *WiFiManager) AccessPointDeactivate() error {
+	profile, err := m.AccessPointGetConnection()
+	if err != nil {
+		return err
+	}
+
+	if profile == nil {
+		return nil
+	}
+
+	return m.deactivate(profile, AccessPointID)
+}
+
+func (m *WiFiManager) AccessPointRestart() error {
+	enabled, err := m.AccessPointIsEnabled()
+	if err != nil {
+		return err
+	}
+
+	if !enabled {
+		return nil
+	}
+
+	if err := m.AccessPointDeactivate(); err != nil {
+		return err
+	}
+
+	return m.AccessPointActivate()
+}
+
 func (m *WiFiManager) AccessPointGetConnection() (*nm.ConnectionProfile, error) {
 	profile, err := m.settings.FindConnectionById(AccessPointID)
 	if err != nil {
@@ -111,25 +153,57 @@ func (m *WiFiManager) AccessPointGetConnection() (*nm.ConnectionProfile, error) 
 	return profile, nil
 }
 
-func (m *WiFiManager) AddConnection(settings map[string]map[string]dbus.Variant) (*nm.ConnectionProfile, error) {
+func (m *WiFiManager) addConnection(settings map[string]map[string]dbus.Variant) (*nm.ConnectionProfile, error) {
 	return m.settings.AddConnection(settings)
 }
 
-func (m *WiFiManager) GetConfig() (*WiFiConfig, error) {
-	activeConnection, err := m.device.ActiveConnection()
+func (m *WiFiManager) SetConfig(config *WiFiConfig) error {
+	profile, err := m.AccessPointGetConnection()
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	enabled := false
-	if activeConnection != nil {
-		id, err := activeConnection.Id()
+	if config.AP != nil {
+		desired, err := config.AP.BuildSettings()
 		if err != nil {
-			return nil, err
+			return err
 		}
-		if id == AccessPointID {
-			enabled = true
+
+		if profile == nil {
+			profile, err = m.addConnection(desired)
+			if err != nil {
+				return fmt.Errorf("failed to create connection: %w", err)
+			}
+		} else {
+			if err := profile.Update(desired); err != nil {
+				return fmt.Errorf("failed to update connection settings: %w", err)
+			}
 		}
+	}
+
+	if config.Enabled != nil {
+		enabled := *config.Enabled
+		if err = m.AccessPointChangeState(enabled); err != nil {
+			return err
+		}
+
+		if !enabled && config.AP == nil && profile != nil {
+			profile.Delete()
+		}
+
+	} else {
+		if err := m.AccessPointRestart(); err != nil {
+			panic(err)
+		}
+	}
+
+	return nil
+}
+
+func (m *WiFiManager) GetConfig() (*WiFiConfig, error) {
+	enabled, err := m.AccessPointIsEnabled()
+	if err != nil {
+		return nil, err
 	}
 
 	profile, err := m.AccessPointGetConnection()
@@ -181,4 +255,13 @@ func AcessPointGetConfig(c *nm.ConnectionProfile) (*AccessPointPConfig, error) {
 		Subnet:         subnets,
 		Gateway:        gateway,
 	}, nil
+}
+
+func GetRegdom() (string, error) {
+	content, err := os.ReadFile(RegdomConfigPath)
+	if err != nil {
+		return "", err
+	}
+	regdom := strings.TrimSpace(string(content))
+	return regdom, nil
 }

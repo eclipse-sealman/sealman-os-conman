@@ -66,10 +66,10 @@ def _docker_restart(restart_iotedge: bool = True, restart_containers: bool = Tru
         compose_dirs = list(COMPOSE_FILES_DIR.glob("*"))
         if len(compose_dirs) == 0:
             return
-        
+
         for d in compose_dirs:
             run_docker_compose("down", cwd=d)
-        
+
         docker_compose_up_async(*compose_dirs)
 
 

@@ -268,15 +268,15 @@ def get_config_step_init(*, with_privates: bool) -> com_client.RespondingHandler
                 # handler, hence for easier reading we break typical indentation
                 # rules, so we have message and corresponding config part in same line.
                 _client.query(topics.webgui.get_config, "", gcst("webgui",
-                              topics.net.get_config, gcst("network",                                  # noqa: E128
-                              topics.net.filter.get_config, gcst("firewall",                          # noqa: E128
-                              topics.net.ovpn.get_config, gcst("ovpn",                                # noqa: E128
-                              topics.webgui.get_config, gcst("webgui",                                # noqa: E128
-                              topics.docker.dns.get_config, gcss("docker", "dockerdns",               # noqa: E128
-                              topics.docker.params.get_config, gcss("docker", "params",               # noqa: E128
-                              topics.docker.compose.get_config, gcss("docker", "compose_files",       # noqa: E128
-                              topics.docker.network_pools.get_config, gcss("docker", "network_pools", # noqa: E128
-                              topics.smart_ems.get_config, gcsf("smartems")))))))))))                 # noqa: E128
+                              topics.net.get_config, gcst("network",                                   # noqa: E128
+                              topics.net.filter.get_config, gcst("firewall",                           # noqa: E128
+                              topics.net.ovpn.get_config, gcst("ovpn",                                 # noqa: E128
+                              topics.webgui.get_config, gcst("webgui",                                 # noqa: E128
+                              topics.docker.dns.get_config, gcss("docker", "dockerdns",                # noqa: E128
+                              topics.docker.params.get_config, gcss("docker", "params",                # noqa: E128
+                              topics.docker.compose.get_config, gcss("docker", "compose_files",        # noqa: E128
+                              topics.docker.network_pools.get_config, gcss("docker", "network_pools",  # noqa: E128
+                              topics.smart_ems.get_config, gcsf("smartems")))))))))))                  # noqa: E128
             except:  # noqa: E722 we are doing trivial cleanup here, so it is ok to catch everything
                 get_config_data.active_requests.pop()
                 raise

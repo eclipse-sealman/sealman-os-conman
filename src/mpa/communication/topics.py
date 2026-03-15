@@ -194,6 +194,10 @@ class net:
             set_config = "net.wifi.ap.set_config"
             change_state = "net.wifi.ap.change_state"
 
+        class localization:
+            set_config = "net.wifi.localization.set_config"
+            get_config = "net.wifi.localization.get_config"
+
     class ovpn:
         add_tunnel = "net.ovpn.add_tunnel"
         remove_tunnel = "net.ovpn.remove_tunnel"

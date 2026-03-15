@@ -22,7 +22,7 @@ import click
 # Local imports
 import mpa.communication.topics as topics
 from mpa.communication.message_parser import get_dict, get_optional_bool, get_optional_dict, get_optional_str
-from .common import SCOPES, TYPES, DEFAULT_VLAN_METRIC, LAN_WIFI_INTERFACES
+from .common import AVAILABLE_REGDOMS, DEFAULT_VLAN_METRIC, LAN_WIFI_INTERFACES, SCOPES, TYPES
 from mpa.common.cli import (
     custom_group,
     interface_number_argument_decorator,
@@ -157,7 +157,7 @@ def cellular_set(client: Client, interface: int, mode: str) -> None:
     be configured beforehand with `cellular-configure` command.
     Use mode `off` to disconnect mobile network interface.
     """
-    data = {"is_enabled": mode=="on", "interface": interface}
+    data = {"is_enabled": mode == "on", "interface": interface}
     client.query(topics.net.cellular.change_state, data, exiting_print_message)
 
 
@@ -246,6 +246,7 @@ class TopicWithChangeState(Protocol):
 
 def change_state(client: Client, topic: TopicWithChangeState, is_enabled: bool) -> None:
     client.query(topic.change_state, {"is_enabled": is_enabled}, handler=exiting_print_message)
+
 
 @client.command_with_client("enable")
 def wifi_client_enable(client: Client) -> None:
@@ -374,6 +375,47 @@ def wifi_ap_config(client: Client, ssid: str, key: str, authentication: str,
         }
     }
     client.query(topics.net.wifi.ap.set_config, request, handler=exiting_print_message)
+
+
+@wifi.group()
+def localization() -> None:
+    """Configure allowed radio transmission frequencies and powers.
+
+    To adhere to local radio emmision regulations system needs to know where
+    it actually is located and which regulatory domain governs its current
+    transmissions. Owner of device is responsible for proper setting of
+    regulatory domain.
+
+    Note that regulatory domain setting works like radio filter --- if for
+    example access point in the system is configured to use channel not allowed
+    in configured regulatory domain, the wifi card will not emit anything, which
+    in practice will make AP non-functional.
+
+    When regulatory domain is not set (empty string was used as regdom value)
+    to avoid breaking local laws restrictions from all countries will be applied
+    together (so called global regulatory domain) which in practice means only
+    limited number of 2.4GHz band channels in low power mode will be available
+    for client wifi mode, and AP mode will be totally blocked."""
+
+@localization.command_with_client("set")
+@click.argument("localization", type=click.Choice(AVAILABLE_REGDOMS))
+def localization_set(client: Client, localization: str) -> None:
+    """Set wifi localization to one from a list of available regulator domains.
+
+    Note that if new regulatory domain is not allowing radio channel configured
+    for AP, the AP will cease to function without raising any errors.
+
+    Examples:
+    *** "" --- configure "global" regulatory domain (which disables AP mode)
+    *** DE --- configure Germany as current regulatory domain
+    """
+    client.query(topics.net.wifi.localization.set_config, {"wifi-localization": localization}, handler=exiting_print_message)
+
+
+@localization.command_with_client("show")
+def localization_show(client: Client) -> None:
+    """Show current wifi localization (regulatory domain)."""
+    client.query(topics.net.wifi.localization.get_config, handler=exiting_print_message)
 
 
 @cli.command_with_client()
