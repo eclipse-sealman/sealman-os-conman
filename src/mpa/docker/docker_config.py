@@ -291,17 +291,24 @@ def network_pools_show(client: Client) -> None:
     "-b",
     "--base",
     required=True,
-    help="Base network in CIDR notation (e.g. 172.16.0.0/16)",
+    help="Base network in CIDR notation defining the pool range "
+         "(example: 172.16.0.0/16). Docker will allocate subnets from this range.",
 )
 @click.option(
     "-s",
     "--size",
     required=True,
-    type=int,
-    help="Subnet size for docker networks (e.g. 24)",
+    type=click.IntRange(1, 30),
+    help="Prefix length of subnets Docker will allocate from the pool "
+         "(example: 24 will create /24 networks inside the base range).",
 )
 def network_pools_add(client: Client, base: str, size: int) -> None:
-    """Add a new docker network address pool."""
+    """Add a new docker network address pool.
+
+    The configuration change will take effect only after running:
+
+        docker-config apply
+    """
     client.query(topics.docker.network_pools.add, {"base": base, "size": size}, exiting_print_message)
 
 
@@ -313,13 +320,23 @@ def network_pools_add(client: Client, base: str, size: int) -> None:
     help="Base network of the pool to remove",
 )
 def network_pools_remove(client: Client, base: str) -> None:
-    """Remove an existing docker network address pool."""
+    """Remove an existing docker network address pool.
+
+    The configuration change will take effect only after running:
+
+        docker-config apply
+    """
     client.query(topics.docker.network_pools.remove, {"base": base}, exiting_print_message)
 
 
 @network_pools.command_with_client("clear")
 def network_pools_clear(client: Client) -> None:
-    """Remove all configured docker network address pools."""
+    """Remove all configured docker network address pools.
+    
+    The configuration change will take effect only after running:
+
+        docker-config apply
+    """
     client.query(topics.docker.network_pools.clear, handler=exiting_print_message)
 
 
