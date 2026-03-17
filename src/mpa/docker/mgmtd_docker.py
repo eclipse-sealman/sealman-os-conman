@@ -162,6 +162,9 @@ def docker_params_set(message: bytes, restart_docker: bool = True) -> None:
 
 
 def _validate_pool(base: str, size: int) -> None:
+    if "/" not in base:
+        raise InvalidParameterError(f"Invalid network '{base}'. CIDR notation required (example: 172.30.0.0/16)")
+
     try:
         network = ipaddress.ip_network(base, strict=True)
     except ValueError as e:
@@ -170,8 +173,10 @@ def _validate_pool(base: str, size: int) -> None:
     if network.version != 4:
         raise InvalidParameterError("Only IPv4 networks are supported")
 
-    if size <= network.prefixlen:
-        raise InvalidParameterError(f"Invalid subnet size {size}. Must be larger than base prefix {network.prefixlen}")
+    if size <= network.prefixlen or size > 30:
+        raise InvalidParameterError(
+            f"Invalid subnet prefix length {size} - must be larger than base prefix {network.prefixlen} and at most 30"
+        )
 
 
 def _get_current_pools() -> list[dict[str, str | int]]:
