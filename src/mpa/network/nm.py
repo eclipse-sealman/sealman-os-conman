@@ -419,7 +419,7 @@ def localization_show(client: Client) -> None:
     client.query(topics.net.wifi.localization.get_config, handler=exiting_print_message)
 
 
-@cli.command_with_client()
+@cli.command_with_client(timeout_ms=20_000)
 @interface_name_option_decorator
 @click.option("--ip", required=True, help="IP address.")
 @click.option("--mtu", help="MTU.")
@@ -449,7 +449,7 @@ def static_ip(client: Client, name: str, ip: str, gateway: str, mtu: str, subnet
     client.query(topics.net.set_config, data, exiting_print_message)
 
 
-@cli.command_with_client(
+@cli.command_with_client(timeout_ms=20_000,
     help=f"""Set dhcp on network interface.
 
     Causes given network interface to use DHCP for obtaning network
@@ -920,7 +920,7 @@ def cellular_checklist_deprecated(client: Client) -> None:
     client.query(topics.net.cellular.check, handler=exiting_print_message)
 
 
-@cli.command_with_client("static_ip", hidden=True, deprecated="Use `nm static-ip`.")
+@cli.command_with_client("static_ip", timeout_ms=20_000, hidden=True, deprecated="Use `nm static-ip`.")
 @click.option("--name", required=True, type=click.Choice(LAN_INTERFACES))
 @click.option("--ip", required=True)
 @click.option("--gateway", default="", show_default=True)
