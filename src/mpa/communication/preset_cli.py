@@ -228,7 +228,7 @@ def generate_preset_commands(
         query_in(client, print_all(f"{topic_prefix}.print", name, part))
 
 
-def add_print_editable_command(group: CustomGroup) -> None:
+def add_print_editable_command(group: CustomGroup, topic_prefix: str) -> None:
     @group.command_with_client(
         name="print",
         help=f"""
@@ -247,7 +247,7 @@ def add_print_editable_command(group: CustomGroup) -> None:
     @add_preset_part_argument(help="""Part (at least container of rules) of preset which shall be printed.
                             Whole preset will printed if not given.""")
     def print_editable_command(client: Client, name: str, part: str) -> None:
-        query_in(client, print_editable("net.routes.preset.print", name, part))
+        query_in(client, print_editable(f"{topic_prefix}.preset.print", name, part))
 
 
 ##############################################################

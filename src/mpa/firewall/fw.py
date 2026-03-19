@@ -42,6 +42,8 @@ from mpa.communication.common import (
     ask_for_affirmation_with,
     exiting_print_message,
     exiting_print_filtered_message,
+    print_json_raw,
+    print_json_with_multiline_strings,
     print_message_list_with_custom_response,
     print_message_ok,
     rashly,
@@ -177,13 +179,17 @@ def set_config(client: Client, filename: Path, unconditionally: bool) -> None:
 
 
 @cli.command_with_client(help_priority="_3_")
-def show(client: Client) -> None:
+@click.option('-m', '--machine', is_flag=True, help="""Output for machine processing.
+              Without this option output will be more suitable for humans, but not necessarily valid json""")
+def show(client: Client, machine: bool = False) -> None:
     """Show firewall configuration in terse way.
 
     Terse means that notes will be hidden,
     Use `preset print` with name of selected preset to see also notes).
     """
-    client.query(topics.net.filter.show, handler=exiting_print_filtered_message("notes"))
+    print_message = print_json_raw if machine else print_json_with_multiline_strings
+    client.query(topics.net.filter.show,
+                 handler=exiting_print_filtered_message("notes", print_message=print_message))
 
 
 @cli.command_with_client(help_priority="_4_")
@@ -860,7 +866,7 @@ def modify_nat_post(client: Client, command: str, rule_name: str, name: str, mak
 
 
 # Add the editable preset print command
-preset_cli.add_print_editable_command(cli)
+preset_cli.add_print_editable_command(cli, "net.filter")
 
 
 # Utility commands for quick port allow/deny
