@@ -9,7 +9,6 @@ requires-python = ">= 3.12"
 version = "1.9.3"
 # readme = "README.md"
 dependencies = [
-  "argcomplete == 1.12.1",
   "click == 8.2.1",
   "packaging == 23.2",
   "PyGObject == 3.46",             # libgirepository1.0-dev, gir1.2-nm-1.0, libcairo2-dev, python3-dev
