@@ -31,7 +31,7 @@ from distutils.util import strtobool
 from functools import wraps
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, Mapping, MutableMapping, NoReturn, \
-                   Optional, Union, TypeVar, Tuple, List
+                   Protocol, Optional, Union, TypeVar, Tuple, List
 
 # Third party imports
 import pyroute2.netlink  # type: ignore
@@ -304,7 +304,14 @@ def rashly(handler: TrivialHandlerCallable) -> QueryHandlerCallable:
     return rashly_handle
 
 
-PrintMessageCallable = Callable[[Mapping[str, Any]], None]
+PrintMessageSimple = Callable[[Mapping[str, Any]], None]
+
+
+class PrintMessageSortable(Protocol):
+    def __call__(self, data: Any, *, sort_keys: bool = False) -> None: ...
+
+
+PrintMessageCallable = PrintMessageSimple | PrintMessageSortable
 
 
 def print_json_raw(data: Any, *, sort_keys: bool = False) -> None:
@@ -401,9 +408,10 @@ def exiting_print_sorted_message(message: Union[bytes, str]) -> Union[bool, NoRe
     return exiting_print_message(message, print_message=lambda data: print_json_with_multiline_strings(data, sort_keys=True))
 
 
-def exiting_print_filtered_message(to_remove: str) -> QueryHandlerCallable:
+def exiting_print_filtered_message(to_remove: str,
+                                   print_message: PrintMessageSortable = print_json_raw) -> QueryHandlerCallable:
     def print_function(data: Any) -> None:
-        print_json_with_multiline_strings(filter_out_key_recursively(data, to_remove), sort_keys=True)
+        print_message(filter_out_key_recursively(data, to_remove), sort_keys=True)
 
     def with_filter_applied(message: Union[bytes, str]) -> Union[bool, NoReturn]:
         return exiting_print_message(message, print_message=print_function)

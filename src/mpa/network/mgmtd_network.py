@@ -706,7 +706,7 @@ def net_wifi_set_config(mode: str, message: Optional[bytes] = None,
             )
 
         if config is None:
-            assert(message is not None)
+            assert message is not None
             config = json.loads(message)
 
         match mode:
@@ -736,7 +736,7 @@ def net_wifi_change_state(mode: str, message: bytes) -> None:
     """
     with NET_WIFI_CLIENT_STATE_LOCK.transaction("Global lock for changing state of existing wifi connection profile"):
         logger.info('net_wifi_client_change_state')
-        is_enabled=get_bool(json.loads(message), "is_enabled")
+        is_enabled = get_bool(json.loads(message), "is_enabled")
         if mode == "client" and is_enabled:
             dhcp_config = _dhcp_server_get_config()
             if "wifi1" in dhcp_config and dhcp_config["wifi1"].get("enabled"):

@@ -397,6 +397,7 @@ def localization() -> None:
     limited number of 2.4GHz band channels in low power mode will be available
     for client wifi mode, and AP mode will be totally blocked."""
 
+
 @localization.command_with_client("set")
 @click.argument("localization", type=click.Choice(AVAILABLE_REGDOMS))
 def localization_set(client: Client, localization: str) -> None:
@@ -543,7 +544,7 @@ def static_routing() -> None:
     """
 
 
-preset_cli.add_print_editable_command(static_routing)
+preset_cli.add_print_editable_command(static_routing, "net.routes")
 
 
 @static_routing.command_with_client("add")
@@ -981,7 +982,7 @@ def static_routing_deprecated() -> None:
     ...
 
 
-preset_cli.add_print_editable_command(static_routing_deprecated)
+preset_cli.add_print_editable_command(static_routing_deprecated, "net.routes")
 
 
 @static_routing_deprecated.command_with_client("add", hidden=True, deprecated="Use `nm static-routing add`.")

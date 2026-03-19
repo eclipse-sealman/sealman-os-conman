@@ -332,7 +332,7 @@ def network_pools_remove(client: Client, base: str) -> None:
 @network_pools.command_with_client("clear")
 def network_pools_clear(client: Client) -> None:
     """Remove all configured docker network address pools.
-    
+
     The configuration change will take effect only after running:
 
         docker-config apply
