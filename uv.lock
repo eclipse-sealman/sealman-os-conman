@@ -3,15 +3,6 @@ revision = 3
 requires-python = ">=3.12"
 
 [[package]]
-name = "argcomplete"
-version = "1.12.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/45/bd/98dfd56ea8f6b2b7dd89bea8b067a55a6dbaec7b4cc28186cbafe2e1d24e/argcomplete-1.12.1.tar.gz", hash = "sha256:849c2444c35bb2175aea74100ca5f644c29bf716429399c0f2203bb5d9a8e4e6", size = 53677, upload-time = "2020-09-27T04:25:18.864Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/d2/21/b0cecd5193b4d86818fe5b29b36f6bd5807ed9ab2d4a75681e1d3eaf7ba8/argcomplete-1.12.1-py2.py3-none-any.whl", hash = "sha256:5cd1ac4fc49c29d6016fc2cc4b19a3c08c3624544503495bf25989834c443898", size = 38214, upload-time = "2020-09-27T04:25:17.144Z" },
-]
-
-[[package]]
 name = "asn1crypto"
 version = "1.5.1"
 source = { registry = "https://pypi.org/simple" }
@@ -111,6 +102,18 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/b7/8c/9839225320046ed279c6e839d51f028342eb77c91c89b8ef2549f951f3ec/charset_normalizer-3.4.3-cp314-cp314-win32.whl", hash = "sha256:c6dbd0ccdda3a2ba7c2ecd9d77b37f3b5831687d8dc1b6ca5f56a4880cc7b7ce", size = 100086, upload-time = "2025-08-09T07:56:52.722Z" },
     { url = "https://files.pythonhosted.org/packages/ee/7a/36fbcf646e41f710ce0a563c1c9a343c6edf9be80786edeb15b6f62e17db/charset_normalizer-3.4.3-cp314-cp314-win_amd64.whl", hash = "sha256:73dc19b562516fc9bcf6e5d6e596df0b4eb98d87e4f79f3ae71840e6ed21361c", size = 107400, upload-time = "2025-08-09T07:56:55.172Z" },
     { url = "https://files.pythonhosted.org/packages/8a/1f/f041989e93b001bc4e44bb1669ccdcf54d3f00e628229a85b08d330615c5/charset_normalizer-3.4.3-py3-none-any.whl", hash = "sha256:ce571ab16d890d23b5c278547ba694193a45011ff86a9162a71307ed9f86759a", size = 53175, upload-time = "2025-08-09T07:57:26.864Z" },
+]
+
+[[package]]
+name = "click"
+version = "8.2.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "colorama", marker = "sys_platform == 'win32'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/60/6c/8ca2efa64cf75a977a0d7fac081354553ebe483345c734fb6b6515d96bbc/click-8.2.1.tar.gz", hash = "sha256:27c491cc05d968d271d5a1db13e3b5a184636d9d930f148c50b038f0d0646202", size = 286342, upload-time = "2025-05-20T23:19:49.832Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/85/32/10bb5764d90a8eee674e9dc6f4db6a0ab47c8c4d0d83c27f7c39ac415a4d/click-8.2.1-py3-none-any.whl", hash = "sha256:61a3265b914e850b85317d0b3109c7f8cd35a670f963866005d6ef1d5175a12b", size = 102215, upload-time = "2025-05-20T23:19:47.796Z" },
 ]
 
 [[package]]
@@ -294,9 +297,10 @@ wheels = [
 
 [[package]]
 name = "mpa"
+version = "1.9.3"
 source = { editable = "." }
 dependencies = [
-    { name = "argcomplete" },
+    { name = "click" },
     { name = "packaging" },
     { name = "pygobject" },
     { name = "pyroute2" },
@@ -326,7 +330,7 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "argcomplete", specifier = "==1.12.1" },
+    { name = "click", specifier = "==8.2.1" },
     { name = "flake8", marker = "extra == 'test'", specifier = "==7.1.1" },
     { name = "mypy", marker = "extra == 'test'", specifier = "==1.15" },
     { name = "packaging", specifier = "==23.2" },
