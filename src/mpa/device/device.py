@@ -141,6 +141,18 @@ def cli() -> None:
     """Device configuration command line interface."""
 
 
+@cli.command_with_client()
+def reboot(client: Client) -> None:
+    """Reboot device."""
+
+    def _handler(message: bytes) -> None:
+        print_and_exit_on_falilure_report(message)
+        print("The system will reboot shortly.")
+        sys.exit()
+
+    client.query(topics.dev.reboot, handler=rashly(_handler))
+
+
 @cli.group()
 def serial() -> None:
     """Manage serial ports.
