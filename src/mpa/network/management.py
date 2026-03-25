@@ -25,6 +25,7 @@ from typing import Any, List, Mapping, Sequence, Optional, Union
 
 # Local imports
 from mpa.communication.process import run_command, run_command_unchecked
+from mpa.device.common import PROMISC_CONFIG
 from mpa.common.logger import Logger
 from mpa.communication.status_codes import SUCCESS
 from mpa.communication.common import InvalidPayloadError, InvalidParameterError
@@ -290,9 +291,19 @@ def get_actual_subnetmask(interface: str) -> Union[None, str, Sequence[str]]:
     return reduce_to_single_value_if_possible(masks)
 
 
+def _update_promisc_config(interface: str, mode: bool) -> None:
+    interfaces = set(PROMISC_CONFIG.read_text().strip().splitlines())
+    if mode:
+        interfaces.add(interface)
+    else:
+        interfaces.discard(interface)
+    PROMISC_CONFIG.write_text("\n".join(interfaces))
+
+
 def set_promiscous_mode(interface: str, mode: bool) -> None:
     command = f"pkexec /usr/sbin/ip link set {interface} promisc {'on' if mode else 'off'}"
     run_command(command)
+    _update_promisc_config(interface, mode)
 
 
 def get_promiscous_mode(interface: str) -> bool:
