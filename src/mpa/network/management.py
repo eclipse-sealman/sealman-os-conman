@@ -297,7 +297,11 @@ def _update_promisc_config(interface: str, mode: bool) -> None:
         interfaces.add(interface)
     else:
         interfaces.discard(interface)
-    PROMISC_CONFIG.write_text("\n".join(interfaces))
+
+    # this file is used by promisc.service and the service runs 'while read -r iface;'
+    # we need a newline at the end to read the last line properly
+    # we need an empty file to to not read anything
+    PROMISC_CONFIG.write_text("\n".join(interfaces) + "\n" if interfaces else "")
 
 
 def set_promiscous_mode(interface: str, mode: bool) -> None:
