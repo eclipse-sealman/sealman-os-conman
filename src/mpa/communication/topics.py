@@ -81,6 +81,7 @@ class dev:
         show = "datetime.show"
         set_ntp_server = "datetime.set_ntp_server"
         manage_ntp_service = "datetime.manage_ntp_service"
+        set_time = "datetime.set_time"
 
     class ssh:
         set_config = "dev.ssh.set_config"

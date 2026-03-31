@@ -14,6 +14,7 @@
 import json
 
 from configparser import ConfigParser
+from datetime import datetime as dt
 from typing import Any, Dict
 
 # Local imports
@@ -21,6 +22,7 @@ from mpa.common.common import RESPONSE_OK
 from mpa.communication.common import expect_empty_message
 from mpa.communication.common import get_timezones
 from mpa.communication.common import InvalidParameterError
+from mpa.communication.common import InvalidPreconditionError
 from mpa.communication.message_parser import get_bool, get_dict, get_int, get_str, get_optional_str, get_str_with_default
 from mpa.communication.process import run_command
 from mpa.config.configfiles import ConfigFiles
@@ -154,3 +156,29 @@ def set_timezone(message: bytes) -> None:
 def manage_ntp_service(message: bytes) -> None:
     user_data = json.loads(message)
     toggle_ntp(user_data)
+
+
+def write_time(user_data: Dict[str, str]) -> None:
+    if read_config()["date_time"]["ntp_enabled"]:
+        raise InvalidPreconditionError("NTP is enabled. Disable NTP with 'device datetime disable' before setting time manually.")
+
+    datetime_str = get_str(user_data, 'datetime')
+
+    datetime_value = None
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%y-%m-%d %H:%M:%S"):
+        try:
+            datetime_value = dt.strptime(datetime_str, fmt)
+            break
+        except ValueError:
+            continue
+
+    if datetime_value is None:
+        raise InvalidParameterError(f"Invalid datetime format '{datetime_str}'. Expected [CC]YY-MM-DD hh:mm:ss")
+
+    formatted = datetime_value.strftime("%Y-%m-%d %H:%M:%S")
+    run_command(f'pkexec timedatectl set-time "{formatted}"')
+
+
+def set_time(message: bytes) -> None:
+    user_data = json.loads(message)
+    write_time(user_data)

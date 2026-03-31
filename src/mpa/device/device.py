@@ -1366,6 +1366,22 @@ def datetime_set_timezone(client: Client, timezone: str) -> None:
     client.query(topics.dev.datetime.set_timezone, {"timezone": timezone}, exiting_print_message)
 
 
+@datetime.command_with_client("set-time")
+@click.argument("date")
+@click.argument("time")
+def datetime_set_time(client: Client, date: str, time: str) -> None:
+    """Set device time manually.
+
+    DATE and TIME must be provided as two separate arguments in the format
+    [CC]YY-MM-DD and hh:mm:ss. NTP must be disabled before using this command.
+
+    Examples:
+    *** 2025-06-15 14:30:00 --- set time to June 15 2025, 14:30:00
+    *** 25-06-15 14:30:00 --- same using two-digit year (century assumed 20xx)
+    """
+    client.query(topics.dev.datetime.set_time, {"datetime": f"{date} {time}"}, exiting_print_message)
+
+
 @cli.group()
 def webgui() -> None:
     """Manage WebGUI service.

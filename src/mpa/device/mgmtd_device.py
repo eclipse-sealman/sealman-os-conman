@@ -1092,6 +1092,7 @@ def main() -> None:
     messages[topics.dev.datetime.show] = guarded(sync(date_time.show_time))
     messages[topics.dev.datetime.set_ntp_server] = guarded(sync(date_time.set_ntp_server))
     messages[topics.dev.datetime.manage_ntp_service] = guarded(sync(date_time.manage_ntp_service))
+    messages[topics.dev.datetime.set_time] = guarded(sync(date_time.set_time))
     messages[topics.dev.ssh.set_config] = guarded(sync(set_ssh_config))
     # TODO behaves differently than other get_config handlers!
     messages[topics.dev.ssh.get_config] = guarded(sync(ssh_config_show))
