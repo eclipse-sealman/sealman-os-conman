@@ -71,7 +71,7 @@ def compose() -> None:
     """
 
 
-@compose.command_with_client("recreate")
+@compose.command_with_client("recreate", timeout_ms=60_000)
 @click.option("-n", "--name", default="*", show_default=True, help="Pattern for names to be recreated.")
 def compose_recreate(client: Client, name: str) -> None:
     """Force recreation of seleceted or all composed containers.
@@ -99,7 +99,7 @@ def compose_status(client: Client, filename: Path) -> None:
     client.query(topics.docker.compose.status, handler=rashly(store_yaml_config(filename, "compose_file")))
 
 
-@compose.command_with_client("load")
+@compose.command_with_client("load", timeout_ms=30_000)
 @click.option("-n", "--name", required=True, help="Name under which this compose file shall be stored.")
 @readable_file_option_decorator(allowed_extensions=[FileExtension.YML, FileExtension.YAML])
 def compose_load(client: Client, name: str, filename: Path) -> None:
@@ -126,7 +126,7 @@ def compose_delete(client: Client, name: str) -> None:
     client.query(topics.docker.compose.delete, {"name": name}, exiting_print_message)
 
 
-@compose.command_with_client("set-config")
+@compose.command_with_client("set-config", timeout_ms=60_000)
 @readable_file_option_decorator(allowed_extensions=FileExtension.JSON)
 def compose_set_config(client: Client, filename: Path) -> None:
     """Replaces current compose files with new set.
