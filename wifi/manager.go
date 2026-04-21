@@ -223,7 +223,7 @@ func (m *WiFiManager) GetConfig() (*WiFiConfig, error) {
 	return config, nil
 }
 
-func AcessPointGetConfig(c *nm.ConnectionProfile) (*AccessPointPConfig, error) {
+func AcessPointGetConfig(c *nm.ConnectionProfile) (*AccessPointConfig, error) {
 	settings, err := c.GetSettings()
 	if err != nil {
 		return nil, err
@@ -244,7 +244,7 @@ func AcessPointGetConfig(c *nm.ConnectionProfile) (*AccessPointPConfig, error) {
 		return nil, err
 	}
 
-	return &AccessPointPConfig{
+	return &AccessPointConfig{
 		SSID:           ssid,
 		Hidden:         hidden,
 		Channel:        channel,

@@ -342,13 +342,13 @@ def wifi_ap_status(client: Client) -> None:
 
 @ap.command_with_client("config", timeout_ms=60_000)
 @click.option("-s", "--ssid", default="EdgeGateway", show_default=True, help="SSID for the access point.")
-@click.option("-k", "--key", default="ap-password", help="PSK for the access point.")
+@click.option("-k", "--key", default="48366Laer", help="PSK for the access point.")
 @click.option("-a", "--authentication", type=click.Choice(["wpa-psk", "wpa2-psk", "wpa3-sae", "wpa2-wpa3"]),
-              default="wpa2-wpa3", show_default=True, help="Authentication method.")
+              default="wpa2-psk", show_default=True, help="Authentication method.")
 @click.option("-e", "--encryption", default=["ccmp"], show_default=True, multiple=True,
               type=click.Choice(["ccmp", "tkip"]),
               help="Encryption mode CCMP and/or TKIP.")
-@click.option("-c", "--channel", type=int, default=6, show_default=True, help="WiFi channel (1-13).")
+@click.option("-c", "--channel", type=int, default=6, show_default=True, help="WiFi channel (1-11).")
 @click.option("--hidden/--no-hidden", default=False, show_default=True, help="Hide SSID in beacons.")
 @click.option("-A", "--ip", required=True, help="IP Address.")
 @click.option("-S", "--subnet", required=True, type=int, help="Subnet mask (number of bits, so use 24 instead of 255.255.255.0).")
@@ -407,7 +407,6 @@ def localization_set(client: Client, localization: str) -> None:
     for AP, the AP will cease to function without raising any errors.
 
     Examples:
-    *** "" --- configure "global" regulatory domain (which disables AP mode)
     *** DE --- configure Germany as current regulatory domain
     """
     client.query(topics.net.wifi.localization.set_config, {"wifi-localization": localization}, handler=exiting_print_message)

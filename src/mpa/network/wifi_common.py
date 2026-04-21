@@ -16,7 +16,6 @@ Helpers for wifi network connections configuration.
 from __future__ import annotations
 
 # Standard imports
-import json
 from dataclasses import dataclass, field
 from functools import singledispatchmethod
 from ipaddress import IPv4Network
@@ -37,7 +36,6 @@ from mpa.communication.message_parser import (
     get_optional_bool,
     get_optional_dict,
 )
-from mpa.config.common import CONFIG_DIR_ROOT
 from mpa.network.wifi_daemon_client import daemon_ap_get_config, daemon_ap_enable, daemon_ap_disable
 
 # This ugly non-pep8 compliant importing sequence is required by gi module
@@ -48,18 +46,6 @@ gi.require_version("NM", "1.0")  # Use before import to ensure that the right ve
 from gi.repository import NM, GLib, Gio, GObject  # type: ignore # noqa: E402
 
 logger = Logger(f"{sys.argv[0] if __name__ == '__main__' else __name__}")
-
-WIFI_CONFIG_FILE = str(CONFIG_DIR_ROOT / "eg" / "wifi-config.json")
-
-
-def save_wifi_config(config: MutableMapping[str, Any]) -> None:
-    """Persist wifi config to file."""
-    try:
-        with open(WIFI_CONFIG_FILE, "w") as f:
-            json.dump(dict(config), f, sort_keys=False, indent=4)
-    except OSError as e:
-        logger.error(f"Failed to save wifi config to {WIFI_CONFIG_FILE}: {e}")
-
 
 # Common strings
 NM_AP_MODE = getattr(NM, "80211Mode")

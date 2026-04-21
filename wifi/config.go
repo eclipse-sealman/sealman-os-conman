@@ -12,10 +12,10 @@ type WiFiConfig struct {
 	Enabled *bool  `json:"is_enabled"`
 	Mode    string `json:"mode"` // client | ap
 
-	AP *AccessPointPConfig `json:"ap,omitempty"` // this section is optional
+	AP *AccessPointConfig `json:"ap,omitempty"` // this section is optional
 }
 
-type AccessPointPConfig struct {
+type AccessPointConfig struct {
 	SSID           string   `json:"ssid"`
 	Hidden         bool     `json:"hidden"`
 	Authentication string   `json:"authentication"`
@@ -27,7 +27,7 @@ type AccessPointPConfig struct {
 	Encryption     []string `json:"encryption"`
 }
 
-func (cfg *AccessPointPConfig) Validate() error {
+func (cfg *AccessPointConfig) Validate() error {
 	if len(cfg.IP) == 0 {
 		return fmt.Errorf("at least one IPv4 address must be provided")
 	}
@@ -59,8 +59,14 @@ func (cfg *AccessPointPConfig) Validate() error {
 		}
 	}
 
-	if cfg.Channel <= 0 || cfg.Channel > 165 {
-		return fmt.Errorf("invalid wifi channel: %d", cfg.Channel)
+	// TODO
+	// we support only channels 1-11 for now
+	// if cfg.Channel <= 0 || cfg.Channel > 165 {
+	// 	return fmt.Errorf("invalid wifi channel: %d", cfg.Channel)
+	// }
+
+	if cfg.Channel <= 0 || cfg.Channel > 11 {
+		return fmt.Errorf("invalid wifi channel: %d, choose a value in range 1-11", cfg.Channel)
 	}
 
 	validEncryption := []string{"ccmp", "tkip"}
@@ -77,7 +83,7 @@ func (cfg *AccessPointPConfig) Validate() error {
 	return nil
 }
 
-func (cfg *AccessPointPConfig) BuildSettings() (map[string]map[string]dbus.Variant, error) {
+func (cfg *AccessPointConfig) BuildSettings() (map[string]map[string]dbus.Variant, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}

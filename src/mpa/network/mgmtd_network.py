@@ -76,10 +76,10 @@ from mpa.network.management import (
     is_dhcp,
 )
 from mpa.network.wifi_client import wifi_client_scan, wifi_client_set_config
-from mpa.network.wifi_daemon_client import daemon_ap_set_config, daemon_ap_restart, daemon_ap_disable
+from mpa.network.wifi_daemon_client import daemon_ap_set_config, daemon_ap_restart, is_wifi_daemon_available
 from mpa.network.wifi_common import (
     get_wifi_config, get_wifi_interfaces, wifi_change_state,
-    restart_wifi_client, save_wifi_config,
+    restart_wifi_client,
 )
 
 gi.require_version(
@@ -317,7 +317,10 @@ def net_set_config(message: bytes) -> None:
     payload = json.loads(message)
     network_config = get_dict(payload, "network")
 
-    localization = network_config.pop("wifi-localization", "")
+    meta_options: Mapping[str, Any] = payload.pop('meta_options', {})
+    ignore_missing_wifi = get_optional_bool(meta_options, "ignore_superflous_config_entries")
+
+    localization = network_config.pop("wifi-localization", "DE")
     _wifi_localization_set_config({"wifi-localization": localization}, restart_or_disable_wifi="wifi1" not in network_config)
 
     if "dhcp_server" in payload:
@@ -348,8 +351,10 @@ def net_set_config(message: bytes) -> None:
             # hardcoded "wifi1" so it will be easier to find places requiring change
             # when we decide to support more than one wifi device
             elif interface.startswith("wifi"):
+                if not ignore_missing_wifi and not is_wifi_daemon_available():
+                    raise RuntimeError("wifi is not available")
+
                 logger.info(f'net_set_config {config=}')
-                save_wifi_config(config)
                 is_enabled = get_bool(config, 'is_enabled')
                 wifi_mode = get_optional_enum_str(config, 'mode', ['ap', 'client'])
                 if interface in dhcp_server_config and wifi_mode == 'client' and is_enabled:
@@ -783,21 +788,20 @@ def change_ids_state(message: bytes) -> None:
 
 def _wifi_localization_set_config(config: dict[str, str], *, restart_or_disable_wifi: bool) -> None:
     localization = get_optional_enum_str(config, "wifi-localization", AVAILABLE_REGDOMS)
+    if not localization:
+        return
+
     current_localization = wifi_localization_get_config()["wifi-localization"]
     if localization == current_localization:
         return
 
-    regdom = "00" if localization == "" else localization
-    run_command(f"pkexec /usr/sbin/iw set {regdom}")
-    REGDOM_CONFIG.write_text(regdom.strip())
+    run_command(f"pkexec /usr/sbin/iw set {localization}")
+    REGDOM_CONFIG.write_text(localization.strip())
 
-    if restart_or_disable_wifi:
+    if restart_or_disable_wifi and is_wifi_daemon_available():
         with NET_WIFI_CLIENT_STATE_LOCK.transaction("Lock for localization update"):
             restart_wifi_client(_nmc)
-            if regdom != "00":
-                daemon_ap_restart()
-            else:
-                daemon_ap_disable()
+            daemon_ap_restart()
 
 
 def wifi_localization_set_config(message: bytes, restart_or_disable_wifi: bool = True) -> None:
@@ -808,8 +812,7 @@ def wifi_localization_set_config(message: bytes, restart_or_disable_wifi: bool =
 @empty_message_wrapper
 def wifi_localization_get_config(message: bytes) -> dict[str, str]:
     regdom = REGDOM_CONFIG.read_text().strip()
-    localization = "" if regdom == "00" else regdom
-    return {"wifi-localization": localization}
+    return {"wifi-localization": regdom}
 
 
 def dhcp_server_verify_and_fill_config_if_needed(config: dict[str, Any]) -> None:
@@ -831,7 +834,11 @@ def dhcp_server_verify_and_fill_config_if_needed(config: dict[str, Any]) -> None
         dns = get_list(subnet_config, "dns")
         gateway = subnet_config.get("gateway")
 
-        ifaces = get_configured_addresses_and_masks(interface)
+        conn = interface
+        if interface.startswith("wifi"):
+            conn = interface + "-ap"
+
+        ifaces = get_configured_addresses_and_masks(conn)
         if len(ifaces) < 1:
             raise RuntimeError(f"Interface {interface} has no static IP")
 
@@ -843,7 +850,7 @@ def dhcp_server_verify_and_fill_config_if_needed(config: dict[str, Any]) -> None
             network_to_interface[str(network)] = interface
 
         if len(dns) == 0:
-            configured_dns = get_configured_dns(interface)
+            configured_dns = get_configured_dns(conn)
             dns = configured_dns.split(",") if configured_dns is not None else []
         if gateway is None:
             gateway = str(iface.ip)
