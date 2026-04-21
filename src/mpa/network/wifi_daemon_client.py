@@ -19,6 +19,7 @@ import json
 import socket
 import struct
 import sys
+from pathlib import Path
 from typing import Any
 
 from mpa.common.logger import Logger
@@ -29,6 +30,10 @@ logger = Logger(f"{sys.argv[0] if __name__ == '__main__' else __name__}")
 
 WIFI_DAEMON_SOCKET = "/run/mgmtd/wifi_daemon"
 WIFI_DAEMON_TIMEOUT = 10
+
+
+def is_wifi_daemon_available() -> bool:
+    return Path(WIFI_DAEMON_SOCKET).exists()
 
 
 def _send_to_wifi_daemon(msg_type: str, body: dict[str, Any] | None = None) -> dict[str, Any] | None:
