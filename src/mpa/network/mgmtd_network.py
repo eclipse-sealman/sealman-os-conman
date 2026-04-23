@@ -555,7 +555,7 @@ def get_current_dns(message: bytes) -> Dict[str, Any]:
     expect_empty_message(message, "get_current_dns()")
     return {
         "dns_servers": sorted(get_dns()),
-        "override_nic_config": LINK_TO_RESOLVED_CONF.is_symlink(),
+        "override_nic_config": LINK_TO_RESOLVED_CONF.exists(),
     }
 
 
@@ -564,14 +564,23 @@ def add_dns(message: bytes) -> None:
     current = get_dns()
     current.add(dns)
     set_dns(current)
+    restart_systemd_resolved()
 
 
 def set_dns_config(message: bytes) -> None:
     data = get_dict(json.loads(message), "dns")
+    override = get_optional_bool(data, "override_nic_config")
+    if override is True and not LINK_TO_RESOLVED_CONF.exists():
+        LINK_TO_RESOLVED_CONF.symlink_to(RESOLVED_CONF)
+    # we want to remove the symlink only if override is False
+    elif override is False:
+        LINK_TO_RESOLVED_CONF.unlink(missing_ok=True)
+
     if "dns_servers" in data:
         new_dns_servers = set(str(ip) for ip in get_ip46_list(data, "dns_servers"))
         set_dns(new_dns_servers)
-    set_dns_override(get_bool(data, "override_nic_config"))
+
+    restart_systemd_resolved()
 
 
 def delete_dns(message: bytes) -> None:
@@ -579,6 +588,7 @@ def delete_dns(message: bytes) -> None:
     current = get_dns()
     current.discard(to_remove)
     set_dns(current)
+    restart_systemd_resolved()
 
 
 def get_dns() -> Set[str]:
@@ -599,21 +609,6 @@ def set_dns(dns: Set[str]) -> None:
 
     with open(RESOLVED_CONF, "w") as f:
         config.write(f)
-    restart_systemd_resolved()
-
-
-def set_dns_override(override: bool) -> None:
-    LINK_TO_RESOLVED_CONF.unlink(missing_ok=True)
-    if override:
-        LINK_TO_RESOLVED_CONF.symlink_to(RESOLVED_CONF)
-        run_command("systemctl enable --now systemd-resolved")
-        restart_systemd_resolved()
-    else:
-        # Before we can disable systemd-resolved we need to clean up it's configuration
-        # so we tear down the symlink, and restart service, so resolved sees that the
-        # changes need to be rolled back. This looks weird, but it's systemd.
-        restart_systemd_resolved()
-        run_command("systemctl disable --now systemd-resolved")
 
 
 def restart_systemd_resolved() -> None:
