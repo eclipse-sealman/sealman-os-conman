@@ -352,7 +352,7 @@ def net_set_config(message: bytes) -> None:
             # when we decide to support more than one wifi device
             elif interface.startswith("wifi"):
                 if not ignore_missing_wifi and not is_wifi_daemon_available():
-                    raise RuntimeError("wifi is not available")
+                    raise InvalidPreconditionError("wifi is not available")
 
                 logger.info(f'net_set_config {config=}')
                 is_enabled = get_bool(config, 'is_enabled')
