@@ -506,11 +506,12 @@ def set_config(client: Client, filename: Path, unconditionally: bool) -> None:
     sent_queries = []
     client.register_observer_handler(f"{topics.net.set_config}.resp", partial_confirm("network config"))
     sent_queries.append(client.query(topics.net.set_config, message))
-    if 'routes' in message:
-        client.register_observer_handler(f"{topics.net.routing.set_config}.resp", partial_confirm("routes config"))
-        sent_queries.append(client.query(topics.net.routing.set_config, message))
-    else:
-        logger.warning(f"Ignoring missing 'routes' config in file {filename} while performing device set_config")
+    for name, topic in {"routes": topics.net.routing.set_config, "vlans": topics.net.vlan.set_config}.items():
+        if name in message:
+            client.register_observer_handler(f"{topic}.resp", partial_confirm(f"{name} config"))
+            sent_queries.append(client.query(topic, message))
+        else:
+            logger.warning(f"Ignoring missing '{name}' config in file {filename} while performing nm set-config")
 
 
 @cli.command_with_client(
