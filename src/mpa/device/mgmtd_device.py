@@ -1119,6 +1119,9 @@ def main() -> None:
     _client.register_responders(messages)
 
     if _client.has_responding_handler(topics.dev.set_config):
+        # Remediation to leftower incorrect state after buggy versions of mgmtd-network
+        # (or any other issue leaving systemd-resolved disabled)
+        run_command_unchecked("systemctl enable --now systemd-resolved")
         check_if_backup_config_exists(_client)
         smartems.check_if_smartems_transaction_in_progress()
 
