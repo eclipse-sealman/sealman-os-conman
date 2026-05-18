@@ -10,18 +10,20 @@ version = "1.9.3"
 # readme = "README.md"
 dependencies = [
   "click == 8.2.1",
+  "libconf == 2.0.1",
   "packaging == 23.2",
-  "PyGObject == 3.46",             # libgirepository1.0-dev, gir1.2-nm-1.0, libcairo2-dev, python3-dev
+  "PyGObject == 3.46.0",           # libgirepository1.0-dev, gir1.2-nm-1.0, libcairo2-dev, python3-dev
   "pyroute2 == 0.7.10",
+  "python-libarchive == 4.2.1",    # libarchive-dev
   "python-nginx == 1.5.7",
-  "pyzmq == 26.2.0",               # libzmq3-dev
+  "pyzmq == 25.1.2",               # libzmq3-dev
   "requests == 2.32.3",
-  "setuptools == 75.6.0",
+  "setuptools == 69.1.1",
   "sshpubkeys == 3.3.1",
-  "systemd-python == 234",         # libsystemd-dev
+  "systemd-python == 235",         # libsystemd-dev
   "tenacity == 9.0.0",
   "toml == 0.10.2",
-  "tpm2-pytss == 2.3.0",           # libtss2-dev
+  "tpm2-pytss == 2.1.0",           # libtss2-dev
 ]
 authors = [
   {name = "Jan Górski", email = "j.gorski@welotec.com"},
@@ -31,7 +33,6 @@ authors = [
 ]
 maintainers = [
   {name = "Jan Górski", email = "j.gorski@welotec.com"},
-  {name = "Grzegorz Kwaśniewski", email = "g.kwasniewski@welotec.com"},
   {name = "Rafał Ilnicki", email = "r.ilnicki@welotec.com"},
   {name = "Maciej Liszewski", email = "m.liszewski@welotec.com"},
 ]
