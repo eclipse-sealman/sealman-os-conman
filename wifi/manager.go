@@ -88,7 +88,16 @@ func (m *WiFiManager) AccessPointIsEnabled() (bool, error) {
 		return false, err
 	}
 
-	return active != nil, nil
+	if active == nil {
+		return false, nil
+	}
+
+	id, err := active.Id()
+	if err != nil {
+		return false, err
+	}
+
+	return id == AccessPointID, nil
 }
 
 func (m *WiFiManager) AccessPointActivate() error {
