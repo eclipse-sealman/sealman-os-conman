@@ -415,7 +415,7 @@ def localization_set(client: Client, localization: str) -> None:
     Examples:
     *** DE --- configure Germany as current regulatory domain
     """
-    client.query(topics.net.wifi.localization.set_config, {"wifi-localization": localization}, handler=exiting_print_message)
+    client.query(topics.net.wifi.localization.set_config, {"wifi_localization": localization}, handler=exiting_print_message)
 
 
 @localization.command_with_client("show")

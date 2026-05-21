@@ -320,8 +320,8 @@ def net_set_config(message: bytes) -> None:
     meta_options: Mapping[str, Any] = payload.pop('meta_options', {})
     ignore_missing_wifi = get_optional_bool(meta_options, "ignore_superflous_config_entries")
 
-    localization = network_config.pop("wifi-localization", "DE")
-    _wifi_localization_set_config({"wifi-localization": localization}, restart_or_disable_wifi="wifi1" not in network_config)
+    localization = network_config.pop("wifi_localization", "DE")
+    _wifi_localization_set_config({"wifi_localization": localization}, restart_or_disable_wifi="wifi1" not in network_config)
 
     if "dhcp_server" in payload:
         dhcp_server_config = payload["dhcp_server"]
@@ -453,7 +453,7 @@ def net_get_config() -> MutableMapping[str, Any]:
         "network": {},
         }
 
-    config["network"]["wifi-localization"] = wifi_localization_get_config()["wifi-localization"]
+    config["network"]["wifi_localization"] = wifi_localization_get_config()["wifi_localization"]
 
     networks = get_system_network_interfaces()
     for network in networks:
@@ -782,11 +782,11 @@ def change_ids_state(message: bytes) -> None:
 
 
 def _wifi_localization_set_config(config: dict[str, str], *, restart_or_disable_wifi: bool) -> None:
-    localization = get_optional_enum_str(config, "wifi-localization", AVAILABLE_REGDOMS)
+    localization = get_optional_enum_str(config, "wifi_localization", AVAILABLE_REGDOMS)
     if not localization:
         return
 
-    current_localization = wifi_localization_get_config()["wifi-localization"]
+    current_localization = wifi_localization_get_config()["wifi_localization"]
     if localization == current_localization:
         return
 
@@ -807,7 +807,7 @@ def wifi_localization_set_config(message: bytes, restart_or_disable_wifi: bool =
 @empty_message_wrapper
 def wifi_localization_get_config(message: bytes) -> dict[str, str]:
     regdom = REGDOM_CONFIG.read_text().strip()
-    return {"wifi-localization": regdom}
+    return {"wifi_localization": regdom}
 
 
 def dhcp_server_verify_and_fill_config_if_needed(config: dict[str, Any]) -> None:
