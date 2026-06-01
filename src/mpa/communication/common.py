@@ -131,7 +131,7 @@ class InvalidImageFeaturesError(RuntimeError):
 
 
 PLEASE_REPORT = """please report to Welotec that this error occured if possible including whole
-error text, logs gathered with command 'device get_logs' and steps to reproduce"""
+error text, logs gathered with command 'device get-logs' and steps to reproduce"""
 
 expected_error_messages = {}
 expected_error_messages["PermissionDeniedError"] = "Permission denied"
