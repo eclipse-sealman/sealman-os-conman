@@ -80,6 +80,22 @@ func (cfg *AccessPointConfig) Validate() error {
 		}
 	}
 
+	switch cfg.Authentication {
+	case "wpa-psk", "wpa2-psk", "wpa2-wpa3":
+		if !validWPAPSK(cfg.Key) {
+			return fmt.Errorf(
+				"invalid key: WPA-PSK requires either an 8–63 character passphrase or a 64-character hexadecimal key",
+			)
+		}
+
+	case "wpa3-sae":
+		if !validSAEPassphrase(cfg.Key) {
+			return fmt.Errorf(
+				"invalid key: WPA3-SAE requires a non-empty passphrase",
+			)
+		}
+	}
+
 	return nil
 }
 
@@ -128,50 +144,56 @@ func (cfg *AccessPointConfig) BuildSettings() (map[string]map[string]dbus.Varian
 	}
 
 	if cfg.Authentication != "" {
-		var keyMgmt string
-		var proto []string
-		var pmf int
-
-		switch cfg.Authentication {
-		case "wpa-psk":
-			keyMgmt = "wpa-psk"
-			proto = []string{"wpa"}
-
-		case "wpa2-psk":
-			keyMgmt = "wpa-psk"
-			proto = []string{"rsn"}
-
-		case "wpa2-wpa3":
-			keyMgmt = "wpa-psk"
-			proto = []string{"rsn"}
-			pmf = 2
-
-		case "wpa3-sae":
-			keyMgmt = "sae"
-			proto = []string{"rsn"}
-			pmf = 3
-
-		default:
-			return nil, fmt.Errorf("invalid authentication: %s", cfg.Authentication)
+		security, err := BuildWirelessSecuritySettings(cfg.Authentication, cfg.Key, cfg.Encryption)
+		if err != nil {
+			return nil, err
 		}
-
-		security := map[string]dbus.Variant{
-			"key-mgmt": dbus.MakeVariant(keyMgmt),
-			"proto":    dbus.MakeVariant(proto),
-			"pmf":      dbus.MakeVariant(pmf),
-		}
-
-		if cfg.Key != "" {
-			security["psk"] = dbus.MakeVariant(cfg.Key)
-		}
-
-		if len(cfg.Encryption) > 0 {
-			security["pairwise"] = dbus.MakeVariant(cfg.Encryption)
-			security["group"] = dbus.MakeVariant(cfg.Encryption)
-		}
-
 		settings["802-11-wireless-security"] = security
 	}
 
 	return settings, nil
+}
+
+func BuildWirelessSecuritySettings(authentication, key string, encryption []string) (map[string]dbus.Variant, error) {
+	var keyMgmt string
+	var proto []string
+	var pmf int
+
+	switch authentication {
+	case "wpa-psk":
+		keyMgmt = "wpa-psk"
+		proto = []string{"wpa"}
+
+	case "wpa2-psk":
+		keyMgmt = "wpa-psk"
+		proto = []string{"rsn"}
+
+	case "wpa2-wpa3":
+		keyMgmt = "wpa-psk"
+		proto = []string{"rsn"}
+		pmf = 2
+
+	case "wpa3-sae":
+		keyMgmt = "sae"
+		proto = []string{"rsn"}
+		pmf = 3
+
+	default:
+		return nil, fmt.Errorf("invalid authentication: %s", authentication)
+	}
+
+	security := map[string]dbus.Variant{
+		"key-mgmt": dbus.MakeVariant(keyMgmt),
+		"proto":    dbus.MakeVariant(proto),
+		"pmf":      dbus.MakeVariant(pmf),
+	}
+
+	security["psk"] = dbus.MakeVariant(key)
+
+	if len(encryption) > 0 {
+		security["pairwise"] = dbus.MakeVariant(encryption)
+		security["group"] = dbus.MakeVariant(encryption)
+	}
+
+	return security, nil
 }
