@@ -226,7 +226,7 @@ def wifi() -> None:
     *** client enable --- enable and connect connection profile on wifi1 interface
     *** client disable --- disable and disconnect connection profile on wifi1 interface
     *** client scan --- scan for available wifi networks
-    *** ap config --ssid MyAP --key mypassword --channel 11 --hidden
+    *** ap config --ssid MyAP --ip 192.168.17.1 --key mypassword --channel 11 --hidden
     --- configure and activate AP with custom settings
     *** ap enable --- enable AP mode with default settings on wifi1
     *** ap disable --- disable AP mode on wifi1
