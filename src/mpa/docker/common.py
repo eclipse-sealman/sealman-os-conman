@@ -11,9 +11,10 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Standard imports
+import shutil
 import sys
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed, Future, TimeoutError as cf_TimeoutError
+from concurrent.futures import ThreadPoolExecutor, as_completed, Future
 from pathlib import Path
 from typing import Any
 
@@ -58,6 +59,18 @@ def docker_compose_up(compose_dir: Path, force_recreate: bool = False) -> None:
     run_docker_compose(f"up -d {'--force-recreate' if force_recreate else ''}", cwd=compose_dir)
 
 
+def validate_and_run_compose(compose_dir: Path, force_recreate: bool = False) -> str:
+    try:
+        validate_compose_file(compose_dir)
+        docker_compose_up(compose_dir, force_recreate=force_recreate)
+    except Exception as e:
+        logger.error(f"Validation or startup failed for compose '{compose_dir.name}', removing it: {e}")
+        shutil.rmtree(compose_dir, ignore_errors=True)
+        raise
+ 
+    return RESPONSE_OK
+ 
+
 def docker_compose_up_async(*compose_dirs: Path, force_recreate: bool = False, timeout: int = 15) -> dict[str, str]:
     """
     Executes multiple docker compose up -d in a thread pool.
@@ -67,8 +80,13 @@ def docker_compose_up_async(*compose_dirs: Path, force_recreate: bool = False, t
     and they will race with each other. Only one will succeed and return a successful result (the others will fail with
     the information that a given container already exists).
     """
+    if len(compose_dirs) == 0:
+        return {}
+
     exe = ThreadPoolExecutor(max_workers=len(compose_dirs))
-    futures = {exe.submit(docker_compose_up, compose_dir, force_recreate): compose_dir.name for compose_dir in compose_dirs}
+    futures = {
+        exe.submit(validate_and_run_compose, compose_dir, force_recreate): compose_dir.name for compose_dir in compose_dirs
+    }
 
     for future in futures:
         future.add_done_callback(compose_callback)  # type: ignore
@@ -81,9 +99,8 @@ def docker_compose_up_async(*compose_dirs: Path, force_recreate: bool = False, t
                 results[name] = str(future.exception())
             else:
                 results[name] = RESPONSE_OK
-    except cf_TimeoutError:
-        for future in futures:
-            name = futures[future]
+    except TimeoutError:
+        for future, name in futures.items():
             if name not in results:
                 results[name] = f"{RESPONSE_OK} Composition continues in the background"
 

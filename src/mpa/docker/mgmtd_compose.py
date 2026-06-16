@@ -41,7 +41,7 @@ from mpa.communication.message_parser import get_dict, get_optional_bool, get_st
 from mpa.communication.process import run_command
 from mpa.common.logger import Logger
 from mpa.common.common import RESPONSE_OK
-from mpa.docker.common import COMPOSED_HOME, COMPOSE_FILES_DIR, run_docker_compose, validate_compose_file, docker_compose_up_async
+from mpa.docker.common import COMPOSED_HOME, COMPOSE_FILES_DIR, run_docker_compose, docker_compose_up_async
 
 logger = Logger(f"{sys.argv[0] if __name__ == '__main__' else __name__}")
 
@@ -86,18 +86,11 @@ def docker_compose_add(message: bytes) -> dict[str, str]:
     compose_dir.mkdir()
     compose_file = compose_dir / 'docker-compose.yml'
     compose_file.write_text(yaml)
-    validate_compose_file(compose_dir)
     return docker_compose_up_async(compose_dir)
 
 
 def start_all_compositions(name: str = "*", force_recreate: bool = False) -> dict[str, str]:
     compose_dirs = list(COMPOSE_FILES_DIR.glob(name))
-    if len(compose_dirs) == 0:
-        return {}
-
-    for compose_dir in compose_dirs:
-        validate_compose_file(compose_dir)
-
     return docker_compose_up_async(*compose_dirs, force_recreate=force_recreate)
 
 
@@ -169,13 +162,19 @@ def docker_compose_set_config(message: bytes) -> str:
     for compose_dir in COMPOSE_FILES_DIR.glob('*'):
         if compose_dir.name not in decoded:
             del_compose_dir(compose_dir)
+
+    compose_dirs = set()
     for name, yaml in decoded.items():
         compose_dir = COMPOSE_FILES_DIR / name
-        del_compose_dir(compose_dir, missing_ok=True)
-        compose_dir.mkdir()
-        (compose_dir / "docker-compose.yml").write_text(yaml)
+        compose_dir.mkdir(exist_ok=True)
+        compose_file = compose_dir / "docker-compose.yml"
+        if compose_file.exists() and compose_file.read_text().strip() == yaml.strip():
+            continue
+        else:
+            compose_file.write_text(yaml)
+            compose_dirs.add(compose_dir)
 
-    results = start_all_compositions()
+    results = docker_compose_up_async(*compose_dirs)
     errors = {k: v for k, v in results.items() if not v.startswith(RESPONSE_OK)}
     if errors:
         raise InvalidPayloadError(f"Failed to start all compositions: {errors}")
