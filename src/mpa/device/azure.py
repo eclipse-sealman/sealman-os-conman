@@ -22,6 +22,7 @@ from typing import Any, Dict, Iterable, Mapping, MutableMapping, Optional, Union
 
 # Third party imports
 import toml
+from docker.client import DockerClient  # type: ignore
 
 # Local imports
 from mpa.common.common import RESPONSE_OK
@@ -55,7 +56,7 @@ from mpa.device.common import (
 logger = Logger(f"{sys.argv[0] if __name__ == '__main__' else __name__}")
 
 VAR_LIB_IOTEDGE = Path('/var/lib/iotedge')
-
+IOTEDGE_CONTAINER_LABEL = "net.azure-devices.edge.owner=Microsoft.Azure.Devices.Edge.Agent"
 
 class Azure:
     class DPS:
@@ -153,7 +154,27 @@ class Azure:
         assert isinstance(toml_dump, MutableMapping)
         return toml_dump
 
+    def __remove_iotedge_containers(self) -> None:
+        try:
+            iotedge_containers = DockerClient.from_env().containers.list(
+                all=True, filters={"label": [IOTEDGE_CONTAINER_LABEL]}
+            )
+        except Exception as e:
+            logger.exception(f"could not retrieve iotedge containers {e}")
+            return
+
+        if len(iotedge_containers) > 0:
+            run_command("iotedge system stop")
+            for container in iotedge_containers:
+                container.remove(force=True)
+
     def __save_azure_config(self, toml_config: Mapping[str, Any]) -> None:
+        old_config = self._load_azure_config()
+        if old_config == toml_config:
+            logger.info("New Azure config is the same as the old one, skipping applying")
+            return
+        if old_config.get("hostname") != toml_config.get("hostname", ""):
+            self.__remove_iotedge_containers()
         with open(self.AZURE_CONFIG_FILE, "w") as file:
             toml.dump(toml_config, file)
         self.__apply_config_if_possible()
