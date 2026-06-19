@@ -10,6 +10,7 @@ version = "1.9.3"
 # readme = "README.md"
 dependencies = [
   "click == 8.2.1",
+  "docker == 7.1.0",
   "libconf == 2.0.1",
   "packaging == 23.2",
   "PyGObject == 3.46.0",           # libgirepository1.0-dev, gir1.2-nm-1.0, libcairo2-dev, python3-dev
