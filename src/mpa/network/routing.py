@@ -689,7 +689,7 @@ def net_route_add(message: bytes) -> str:
 
     if route_status == RouteStatus.ROUTE_IN_CURRENT_PRESET:
         raise RouteAlreadyExistsError("Provided route already exists in selected preset. To see current preset content \
-                                please use nm route_preset_print.")
+                                please use nm static-routing preset-print.")
 
     add_net_route_to_config(route_config, config_file, preset.dir)
     if route_status == RouteStatus.ROUTE_IN_CURRENT_ROUTES:
