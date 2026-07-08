@@ -333,9 +333,9 @@ complete -F _{app_name_sanitized}_completion {app_name}
 
             if [[ " $current_commands " =~ " $word " ]]; then
                 if [[ -z "$path" ]]; then
-                    path="$(echo "$word" | sed 's/-/_/g')"
+                    path="${{word//-/_}}"
                 else
-                    path="${{path}}_$(echo "$word" | sed 's/-/_/g')"
+                    path="${{path}}_${{word//-/_}}"
                 fi
             else
                 break
@@ -393,11 +393,18 @@ complete -F _{app_name_sanitized}_completion {app_name}
     fi
 
     # Handle choice options (for option values)
-    local choice_var="${{command_path}}_choice_$(echo "${{prev}}" | sed 's/^-*//; s/-/_/g')"
-    local choices="${{!choice_var:-}}"
-    if [[ -n "$choices" ]]; then
-        COMPREPLY=($(compgen -W "${{choices}}" -- ${{cur}}))
-        return 0
+    if [[ $prev == -* ]]; then
+        local key="${{prev#-}}"
+        key="${{key#-}}"
+        key="${{key//-/_}}"
+
+        local choice_var="${{command_path}}_choice_${{key}}"
+        local choices="${{!choice_var:-}}"
+
+        if [[ -n "$choices" ]]; then
+            COMPREPLY=($(compgen -W "$choices" -- "$cur"))
+            return 0
+        fi
     fi
 
     if [[ ${{cur}} == -* ]]; then
