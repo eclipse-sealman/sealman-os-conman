@@ -320,7 +320,8 @@ def net_set_config(message: bytes) -> None:
     meta_options: Mapping[str, Any] = payload.pop('meta_options', {})
     ignore_missing_wifi = get_optional_bool(meta_options, "ignore_superflous_config_entries")
 
-    localization = network_config.pop("wifi_localization", "DE")
+    current_localization = wifi_localization_get_config()["wifi_localization"]
+    localization = network_config.pop("wifi_localization", current_localization)
     _wifi_localization_set_config({"wifi_localization": localization}, restart_or_disable_wifi="wifi1" not in network_config)
 
     if "dhcp_server" in payload:
