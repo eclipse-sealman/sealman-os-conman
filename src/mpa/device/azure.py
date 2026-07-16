@@ -154,7 +154,7 @@ class Azure:
         assert isinstance(toml_dump, MutableMapping)
         return toml_dump
 
-    def __remove_iotedge_containers(self) -> None:
+    def remove_iotedge_containers(self) -> None:
         try:
             iotedge_containers = DockerClient.from_env().containers.list(
                 all=True, filters={"label": [IOTEDGE_CONTAINER_LABEL]}
@@ -174,7 +174,7 @@ class Azure:
             logger.info("New Azure config is the same as the old one, skipping applying")
             return
         if old_config.get("hostname") != toml_config.get("hostname", ""):
-            self.__remove_iotedge_containers()
+            self.remove_iotedge_containers()
         with open(self.AZURE_CONFIG_FILE, "w") as file:
             toml.dump(toml_config, file)
         self.__apply_config_if_possible()

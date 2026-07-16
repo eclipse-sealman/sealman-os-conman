@@ -39,6 +39,7 @@ from mpa.communication.message_parser import (
 )
 from mpa.communication.process import run_command, run_command_unchecked
 from mpa.config.common import CONFIG_DIR_ROOT
+from mpa.device.azure import Azure
 from mpa.docker.common import COMPOSE_FILES_DIR, run_docker_compose, docker_compose_up_async
 
 logger = Logger(f"{sys.argv[0] if __name__ == '__main__' else __name__}")
@@ -59,6 +60,7 @@ def _docker_restart(restart_iotedge: bool = True, restart_containers: bool = Tru
     run_command("systemctl restart docker")
 
     if restart_iotedge:
+        Azure().remove_iotedge_containers()
         run_command_unchecked("docker network rm azure-iot-edge")
         run_command("iotedge system restart")
 
