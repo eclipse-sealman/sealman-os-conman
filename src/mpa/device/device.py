@@ -1123,7 +1123,7 @@ def smartems() -> None:
 @smartems.command_with_client("config")
 @click.option("-u", "--username", required=True, help="Username for SmartEMS.")
 @click.option("-p", "--password", required=True, help="Password for SmartEMS.")
-@click.option("-U", "--url", required=True, help="URL for SmartEMS.")
+@click.option("-U", "--url", required=True, help="URL for SmartEMS. (https is always used)")
 @click.option("-s", "--skip", is_flag=True,
               help="Skip checking SSL certificate for SmartEMS. DANGER! This allows man-in-the-middle attacks.")
 @click.option("-i", "--interval", type=int, default=3600, show_default=True,

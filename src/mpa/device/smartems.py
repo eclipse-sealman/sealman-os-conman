@@ -20,7 +20,7 @@ from os import statvfs, getpid
 from pathlib import Path
 from threading import Event
 from typing import Any, Callable, Dict, Mapping, MutableMapping, Optional, TypeVar, Union
-from urllib.parse import urlparse
+from urllib.parse import urlsplit
 
 # Third party imports
 import libarchive  # type: ignore
@@ -299,7 +299,7 @@ WantedBy=timers.target
         assert self.message_from_smartems['commandName'] == self.SmartEMSCommands.UPDATE_FIRMWARE.value
         self._client.send("smart_ems.rt", "Starting to download the firmware to /tmp directory")
 
-        url: str = self.message_from_smartems.pop("firmwareUrl")
+        url: str = urlsplit(self.message_from_smartems.pop("firmwareUrl"), scheme="https").geturl()
         logger.info(f"Downloading new firmware: {url}")
         ems_config = json.loads(self.read_smart_ems_config())
         # it may not be present in a config
@@ -507,8 +507,8 @@ WantedBy=timers.target
         if url == "" or url is None:
             logger.info("SmartEMS URL not configured")
             return
-        url_path = urlparse(ems_config['url'])  # Remove all '/' character occurrence at the end of the URL
-        url = self.check_if_url_exists(f"{url_path.scheme}://{url_path.netloc}{self.get_endpoint()}")
+        parsed_url = urlsplit(ems_config['url'], scheme="https")  # Remove all '/' character occurrence at the end of the URL
+        url = self.check_if_url_exists(f"{parsed_url.scheme}://{parsed_url.netloc}{self.get_endpoint()}")
         logger.debug(f"Sending message to Smart EMS: {data}")
         response = call_with_proxy(requests.post, url, json=data, verify=self.get_cert_status(),
                                    auth=requests.auth.HTTPBasicAuth(ems_config['username'], ems_config['password']),
@@ -621,6 +621,8 @@ WantedBy=timers.target
         if "edgegatewayvcc" not in config:
             content: Dict[str, Any] = self._load_smartems_config()
             config["edgegatewayvcc"] = content.get("edgegatewayvcc", False)
+
+        config["url"] = urlsplit(config["url"], scheme="https").geturl()
 
         with open(self.SMARTEMS_CONFIG_FILE, "w") as cfg_file:
             cfg_file.write(json.dumps(config))
