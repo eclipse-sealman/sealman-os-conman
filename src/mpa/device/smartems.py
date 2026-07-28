@@ -47,7 +47,7 @@ from mpa.communication.common import ConflictingOperationInProgessError
 from mpa.communication.message_parser import get_optional_str
 from mpa.communication.inter_process_lock import InterProcessLock
 from mpa.communication.status_codes import CERTIFICATE
-from mpa.config.common import SYSTEMD_ROOT
+from mpa.config.common import SYSTEMD_ROOT, CUSTOM_SYSTEMD_ROOT
 from mpa.config.configfiles import ConfigFiles
 from mpa.device.common import DEVICE_SET_CONFIG_LOCK, PROXY_CONFIG_FILE, SWUpdateScript
 from mpa.device.device_config import SetConfig
@@ -91,7 +91,7 @@ class SmartEMS:
     SMART_EMS_TRANSACTION_LOCK_FILE = config_files.add("lock_file", "eg/smart_ems_transaction_lock", is_expected=False)
     HARDWARE_VERSION_FILE = config_files.add("hw-version", "hw-version")
     SOFTWARE_VERSION_FILE = config_files.add("sw-version", "sw-version")
-    SMART_EMS_TIMER = config_files.add("smart_ems_timer", "system/smartems.timer", config_dir_root=SYSTEMD_ROOT)
+    SMART_EMS_TIMER = config_files.add("smart_ems_timer", "smartems.timer", config_dir_root=CUSTOM_SYSTEMD_ROOT)
     config_files.verify()
     LOCK = InterProcessLock(SMART_EMS_TRANSACTION_LOCK_FILE, stale_lock_seconds=900)
 
