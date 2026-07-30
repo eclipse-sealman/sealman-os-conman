@@ -34,6 +34,7 @@ from typing import Any, Callable, Dict, Iterator, Mapping, MutableMapping, NoRet
                    Protocol, Optional, Union, TypeVar, Tuple, List
 
 # Third party imports
+import click
 import pyroute2.netlink  # type: ignore
 import pyroute2.netlink.rtnl  # type: ignore
 import pyroute2.netlink.rtnl.ifinfmsg  # type: ignore
@@ -241,9 +242,17 @@ def cli_main_loop(client: Client, *args: Any, **kwargs: Any) -> None:
             print(PLEASE_REPORT)
             sys.exit(1)
 
+# TODO remove this function when there will be a better way to read json from file and handle errors in a unified way
+# e.g. by using a custom click type for json file
+def read_json(file_name: Path) -> Any:
+    try:
+        return json.loads(file_name.read_text())
+    except json.decoder.JSONDecodeError as e:
+        raise click.ClickException(f"Failed to read JSON from {file_name}: {e}")
+
 
 def trivial_set_config(client: Client, *, topic: str, file_name: Path) -> None:
-    message = json.loads(file_name.read_text())
+    message = read_json(file_name)
     client.query(topic, message, exiting_print_message)
 
 

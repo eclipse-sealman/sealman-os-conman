@@ -36,6 +36,7 @@ from mpa.communication.client import Client
 from mpa.communication.common import (
     PLEASE_REPORT,
     exiting_print_message,
+    read_json,
     trivial_get_config,
     trivial_set_config,
     rashly,
@@ -569,7 +570,7 @@ def set_config(client: Client, filename: Path, unconditionally: bool, use_meta_o
 
     Whole device configuration will be restored from a file.
     """
-    message = json.loads(filename.read_text())
+    message = read_json(filename)
     if use_meta_options_from_file and "meta_options" in message:
         if "ask_for_affirmation" in message["meta_options"]:
             click.echo(
@@ -1539,7 +1540,7 @@ def get_config_deprecated(client: Client, filename: Path, export_private_keys: b
 @click.option("--unconditionally", is_flag=True)
 @click.option("--use-meta-options-from-file", is_flag=True, hidden=True)
 def set_config_deprecated(client: Client, filename: Path, unconditionally: bool, use_meta_options_from_file: bool) -> None:
-    message = json.loads(filename.read_text())
+    message = read_json(filename)
     if use_meta_options_from_file and "meta_options" in message:
         if "ask_for_affirmation" in message["meta_options"]:
             click.echo(

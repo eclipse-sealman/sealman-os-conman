@@ -46,6 +46,7 @@ from mpa.communication.common import (
     get_system_network_interfaces,
     is_network_address_correct,
     print_message_ok,
+    read_json,
     trivial_get_config,
 )
 
@@ -506,7 +507,7 @@ def set_config(client: Client, filename: Path, unconditionally: bool) -> None:
     Examples:
     *** --filename file-network_config.json --- restore configuration from file 'network_config.json'
     """
-    message = json.loads(filename.read_text())
+    message = read_json(filename)
     message["ask_for_affirmation"] = not unconditionally
     global sent_queries
     sent_queries = []
@@ -958,7 +959,7 @@ def ignore_default_route_deprecated(client: Client, name: str, ignore: bool) -> 
 @readable_file_option_decorator()
 @unconditionally_option_decorator
 def set_config_deprecated(client: Client, filename: Path, unconditionally: bool) -> None:
-    message = json.loads(filename.read_text())
+    message = read_json(filename)
     message["ask_for_affirmation"] = not unconditionally
     global sent_queries
     sent_queries = []

@@ -11,7 +11,6 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Standard imports
-import json
 import sys
 from functools import partial
 from pathlib import Path
@@ -48,6 +47,7 @@ from mpa.communication.common import (
     print_message_ok,
     rashly,
     get_lan_interfaces,
+    read_json,
     trivial_get_config,
 )
 from mpa.communication.status_codes import FIREWALL_PROTOCOLS
@@ -172,7 +172,7 @@ def get_config(client: Client, filename: Path) -> None:
 @readable_file_option_decorator(allowed_extensions=FileExtension.JSON)
 @unconditionally_option_decorator
 def set_config(client: Client, filename: Path, unconditionally: bool) -> None:
-    message = json.loads(filename.read_text())
+    message = read_json(filename)
     message["ask_for_affirmation"] = not unconditionally
     client.query(topics.net.filter.set_config, message, exiting_print_message,
                  affirm_handler_generator=ask_for_affirmation)
@@ -891,7 +891,7 @@ def generate_allow_deny_delete_subject(direction: str) -> str:
 @readable_file_option_decorator(allowed_extensions=FileExtension.JSON)
 @unconditionally_option_decorator
 def set_config_deprecated(client: Client, filename: Path, unconditionally: bool) -> None:
-    message = json.loads(filename.read_text())
+    message = read_json(filename)
     message["ask_for_affirmation"] = not unconditionally
     client.query(topics.net.filter.set_config, message, exiting_print_message,
                  affirm_handler_generator=ask_for_affirmation)
