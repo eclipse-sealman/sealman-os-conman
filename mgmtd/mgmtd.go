@@ -11,6 +11,12 @@ const (
 )
 
 func CreateMgmtdUnixListener(socketPath string) (net.Listener, error) {
+	if _, err := os.Stat(socketPath); err == nil {
+		if err := os.Remove(socketPath); err != nil {
+			return nil, err
+		}
+	}
+
 	listener, err := net.Listen("unix", socketPath)
 	if err != nil {
 		return nil, err
