@@ -11,13 +11,9 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Standard imports
-import codecs
 import grp
-import json
-import pickle
 import pwd
 import socket
-import struct
 import threading
 from asyncio import IncompleteReadError
 from collections.abc import MutableMapping
@@ -29,7 +25,6 @@ from typing import Any, Dict, List, Iterator, Mapping, Optional, Union
 
 # Local imports
 import mpa.device.eeprom
-from mpa.common.common import RESPONSE_FAILURE, RESPONSE_OK
 from mpa.common.logger import Logger
 from mpa.communication.common import (
     InvalidPreconditionError,
@@ -37,7 +32,6 @@ from mpa.communication.common import (
     expect_empty_message,
 )
 from mpa.communication.inter_process_lock import InterProcessLock
-from mpa.communication.message_parser import get_str
 from mpa.communication.process import run_command, run_command_unchecked
 from mpa.communication.status_codes import DEVADMIN_GID, DEVREAD_GID
 from mpa.config.common import CONFIG_DIR_ROOT
@@ -233,34 +227,6 @@ def read_exactly(sock: socket.socket, num_bytes: int) -> bytes:
             raise IncompleteReadError(bytes(buf[:pos]), num_bytes)
         pos += n
     return bytes(buf)
-
-
-def send_and_wait_for_response_on_socket(data: bytearray, socket_path: str = str(SSH_SOCKET_PATH)) -> SOCKET_RETURN_TYPE:
-    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as mgmtd_socket:
-        # TODO how should we handle this more gracefully?
-        # reading/sending data from/to the closed socket may result in BrokenPipeError: [Errno 32] Broken pipe
-        # so the timeout was increased from 1 to 2 seconds
-        mgmtd_socket.settimeout(2)
-        mgmtd_socket.connect(socket_path)
-        mgmtd_socket.sendall(struct.pack(">I", len(data)))
-        if len(data):
-            mgmtd_socket.sendall(data)
-        response_size = struct.unpack(">I", read_exactly(mgmtd_socket, 4))[0]
-        response_payload = read_exactly(mgmtd_socket, response_size)
-        return parse_response_from_socket(response_payload)
-
-
-def parse_response_from_socket(response: bytes) -> SOCKET_RETURN_TYPE:
-    decoded_message: Dict[str, Any] = json.loads(response)
-    status = get_str(decoded_message, "status")
-    if status == RESPONSE_OK:
-        return decoded_message
-    elif status == RESPONSE_FAILURE:
-        base64_exception = get_str(decoded_message, "exception").encode()
-        exc = pickle.loads(codecs.decode(base64_exception, "base64"))
-        raise exc
-    else:
-        raise RuntimeError(f"Recevied unkown status: {status}")
 
 
 def get_serial_devices() -> Mapping[str, str]:
