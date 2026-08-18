@@ -25,7 +25,7 @@ import click
 
 # Local imports
 import mpa.communication.topics as topics
-from mpa.common.common import FileExtension, RESPONSE_FAILURE, RESPONSE_OK
+from mpa.common.common import FileExtension, RESPONSE_FAILURE
 from mpa.common.cli import (
     custom_group,
     readable_file_option_decorator,
@@ -43,7 +43,6 @@ from mpa.communication.common import (
     store_json_config,
     store_toml_config,
     ask_for_affirmation,
-    print_error_message,
     print_message_exit_if_not_ok,
     print_and_exit_on_falilure_report,
     get_timezones,
@@ -63,7 +62,6 @@ from mpa.communication.status_codes import (
     WEEK,
 )
 from mpa.device.common import (
-    AuthorizedKeys,
     get_serial_devices,
     SERIAL_CONFIG_JSON,
     AZURE_CONFIG_JSON,
@@ -892,17 +890,7 @@ def ssh_show(client: Client) -> None:
 @click.option("-u", "--username", default=getpass.getuser(), show_default=True)
 def ssh_list_publickeys(client: Client, username: str) -> None:
     """Display content of ~/.ssh/authorized_keys for currently logged in user."""
-    if username == getpass.getuser():
-        try:
-            keys = AuthorizedKeys(username).read_ssh_keys()
-            for i, item in enumerate(keys, start=0):
-                click.echo(f"{i:<30}: {item:<40}")
-            sys.exit(0)
-        except Exception as exc:
-            print_error_message(f"{RESPONSE_FAILURE} {repr(exc)}")
-            sys.exit(1)
-    else:
-        client.query(topics.dev.ssh.list_keys, {"username": username}, with_list_filter_applied)
+    client.query(topics.dev.ssh.list_keys, {"username": username}, with_list_filter_applied)
 
 
 @ssh.command_with_client("add-publickey")
@@ -915,20 +903,7 @@ def ssh_add_publickey(client: Client, filename: Path, username: str) -> None:
     first you have removed it with remove_key option.
     """
     key_content = filename.read_text()
-    if username == getpass.getuser():
-        try:
-            AuthorizedKeys(username).add_ssh_key(key_content)
-        except Exception as exc:
-            print_error_message(f"{RESPONSE_FAILURE} {repr(exc)}")
-            sys.exit(1)
-        click.echo(f"{RESPONSE_OK} Key successfuly added")
-        sys.exit(0)
-    else:
-        client.query(
-            topics.dev.ssh.add_key,
-            {"username": username, "key": key_content},
-            exiting_print_message,
-        )
+    client.query(topics.dev.ssh.add_key, {"username": username, "key": key_content}, exiting_print_message)
 
 
 @ssh.command_with_client("remove-key")
@@ -936,20 +911,7 @@ def ssh_add_publickey(client: Client, filename: Path, username: str) -> None:
 @click.option("-u", "--username", default=getpass.getuser(), show_default=True)
 def ssh_remove_key(client: Client, index: int, username: str) -> None:
     """Remove key with given index for currently logged in user."""
-    if username == getpass.getuser():
-        try:
-            AuthorizedKeys(username).delete_ssh_key(index)
-        except Exception as exc:
-            print_error_message(f"{RESPONSE_FAILURE} {repr(exc)}")
-            sys.exit(1)
-        print(f"{RESPONSE_OK} Key successfuly removed")
-        sys.exit(0)
-    else:
-        client.query(
-            topics.dev.ssh.remove_key,
-            {"username": username, "index": index},
-            exiting_print_message,
-        )
+    client.query(topics.dev.ssh.remove_key, {"username": username, "index": index}, exiting_print_message)
 
 
 @ssh.command_with_client("maxsessions")
@@ -1773,17 +1735,7 @@ def sshauth_show_deprecated(client: Client) -> None:
 @sshauth_deprecated.command_with_client("list_publickeys", hidden=True, deprecated="Use `device ssh list-publickeys`.")
 @click.option("-u", "--username", default=getpass.getuser(), show_default=True)
 def sshauth_list_publickeys_deprecated(client: Client, username: str) -> None:
-    if username == getpass.getuser():
-        try:
-            keys = AuthorizedKeys(username).read_ssh_keys()
-            for i, item in enumerate(keys, start=0):
-                click.echo(f"{i:<30}: {item:<40}")
-            sys.exit(0)
-        except Exception as exc:
-            print_error_message(f"{RESPONSE_FAILURE} {repr(exc)}")
-            sys.exit(1)
-    else:
-        client.query(topics.dev.ssh.list_keys, {"username": username}, with_list_filter_applied)
+    client.query(topics.dev.ssh.list_keys, {"username": username}, with_list_filter_applied)
 
 
 @sshauth_deprecated.command_with_client("add_publickey", hidden=True, deprecated="Use `device ssh add-publickey`.")
@@ -1791,40 +1743,14 @@ def sshauth_list_publickeys_deprecated(client: Client, username: str) -> None:
 @click.option("-u", "--username", default=getpass.getuser(), show_default=True)
 def sshauth_add_publickey_deprecated(client: Client, filename: Path, username: str) -> None:
     key_content = filename.read_text()
-    if username == getpass.getuser():
-        try:
-            AuthorizedKeys(username).add_ssh_key(key_content)
-        except Exception as exc:
-            print_error_message(f"{RESPONSE_FAILURE} {repr(exc)}")
-            sys.exit(1)
-        click.echo(f"{RESPONSE_OK} Key successfuly added")
-        sys.exit(0)
-    else:
-        client.query(
-            topics.dev.ssh.add_key,
-            {"username": username, "key": key_content},
-            exiting_print_message,
-        )
+    client.query(topics.dev.ssh.add_key, {"username": username, "key": key_content}, exiting_print_message)
 
 
 @sshauth_deprecated.command_with_client("remove_key", hidden=True, deprecated="Use `device ssh remove-key`.")
 @click.option("-i", "--index", type=int, required=True)
 @click.option("-u", "--username", default=getpass.getuser(), show_default=True)
 def sshauth_remove_key_deprecated(client: Client, index: int, username: str) -> None:
-    if username == getpass.getuser():
-        try:
-            AuthorizedKeys(username).delete_ssh_key(index)
-        except Exception as exc:
-            print_error_message(f"{RESPONSE_FAILURE} {repr(exc)}")
-            sys.exit(1)
-        print(f"{RESPONSE_OK} Key successfuly removed")
-        sys.exit(0)
-    else:
-        client.query(
-            topics.dev.ssh.remove_key,
-            {"username": username, "index": index},
-            exiting_print_message,
-        )
+    client.query(topics.dev.ssh.remove_key, {"username": username, "index": index}, exiting_print_message)
 
 
 @sshauth_deprecated.command_with_client("maxsessions", hidden=True, deprecated="Use `device ssh maxsessions`.")
