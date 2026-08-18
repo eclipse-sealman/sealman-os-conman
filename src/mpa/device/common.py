@@ -16,7 +16,6 @@ import grp
 import json
 import pickle
 import pwd
-import shutil
 import socket
 import struct
 import threading
@@ -26,20 +25,15 @@ from configparser import RawConfigParser
 from enum import Enum
 from functools import cache
 from pathlib import Path
-from typing import Any, Dict, List, Iterator, Mapping, Optional, Tuple, Union
-
-# Third party imports
-from sshpubkeys import AuthorizedKeysFile, SSHKey, InvalidKeyError  # type: ignore
+from typing import Any, Dict, List, Iterator, Mapping, Optional, Union
 
 # Local imports
 import mpa.device.eeprom
 from mpa.common.common import RESPONSE_FAILURE, RESPONSE_OK
 from mpa.common.logger import Logger
 from mpa.communication.common import (
-    InvalidParameterError,
     InvalidPreconditionError,
     PLEASE_REPORT,
-    SSHKeyManagementError,
     expect_empty_message,
 )
 from mpa.communication.inter_process_lock import InterProcessLock
@@ -126,127 +120,6 @@ LOGIND_DEFAULT_NAUTOVTS = 6
 SYSCTL_SYSRQ_REBOOT_VALUE = '176'
 SYSCTL_SYSRQ_IGNORE_VALUE = '0'
 config_files.verify()
-
-
-# TODO it would be good to
-# * perform all write operations using new file and just swap files when
-# and/or
-# * think about some locking so while we modify the file nobody else will try to do it manually
-class AuthorizedKeys:
-    def __init__(self, username: str):
-        self.username = username
-        try:
-            pwd.getpwnam(self.username)
-        except KeyError:
-            raise InvalidPreconditionError(f"User {self.username} does not exist")
-
-        self.user_group = get_user_primary_group(username)
-        if self.user_group is None:
-            raise RuntimeError(f"User {self.username} should have assigned primary group")
-
-        if self.user_group not in SSH_KEY_ALLOWED_PRIMARY_GROUPS:
-            raise InvalidPreconditionError(f"Change of SSH keys for {self.username} is forbidden")
-
-    def __writeable_key_file(self) -> Path:
-        authorized_keys_file = self._get_user_ssh_directory() / ".ssh/authorized_keys"
-        if not authorized_keys_file.exists():
-            ssh_dir = authorized_keys_file.parent.absolute()
-            if not ssh_dir.exists():
-                ssh_dir.mkdir(parents=False, exist_ok=True)
-                ssh_dir.chmod(0o744)
-                if ssh_dir.owner() != self.username:
-                    shutil.chown(ssh_dir, self.username, self.user_group)
-            # Keep in sync with bbappend in yocto/meta-welotec/recipes-core/base-files/
-            authorized_keys_file.touch(mode=0o644, exist_ok=True)
-            if authorized_keys_file.owner() != self.username:
-                shutil.chown(authorized_keys_file, self.username, self.user_group)
-        return authorized_keys_file
-
-    def __validate_key(self, key: str) -> None:
-        ssh_key = SSHKey(key)
-        try:
-            ssh_key.parse()
-        except InvalidKeyError as exc:
-            raise InvalidParameterError(f"Received invalid ssh public key for user {self.username}. "
-                                        f"Key value: {key}. Error: {str(exc)}")
-
-    def read_ssh_keys(self) -> List[str]:
-        keys = []
-        authorized_keys_file = self._get_user_ssh_directory() / ".ssh/authorized_keys"
-
-        if authorized_keys_file.exists():
-            try:
-                with authorized_keys_file.open("r") as fd:
-                    key_file = AuthorizedKeysFile(fd, strict=False)
-                for key in key_file.keys:
-                    keys.append(key.keydata)
-            except Exception as exc:
-                # If something went wrong it is probably caused by user playing manually with authorized_keys file, so we
-                # convert all exceptions blindly to SSHKeyManagementError which is "expected" error
-                # TODO analyze what can actually go wrong and raise "expected" error only in such cases, where we are sure
-                # it is not our fault
-                logger.exception(exc)
-                raise SSHKeyManagementError(f"For user {self.username}: {str(exc)}")
-        else:
-            logger.debug(f"{self.username} does not have authorized_keys file")
-        return keys
-
-    @staticmethod
-    def get_all_keys() -> Tuple[Dict[str, List[str]], Dict[str, str]]:
-        devadmin = get_all_users_with_primary_group("devadmin")
-        devread = get_all_users_with_primary_group("devread")
-        keys = {}
-        user_status = {}
-        for user in [*devadmin, *devread]:
-            try:
-                keys[user] = AuthorizedKeys(user).read_ssh_keys()
-                user_status[user] = RESPONSE_OK
-            except SSHKeyManagementError as key_error:
-                user_status[user] = f"{RESPONSE_FAILURE} Issue with authorized keys file: {str(key_error)}"
-            except Exception as exc:
-                user_status[user] = f"{RESPONSE_FAILURE} Invalid state of device (please report to Welotec): {str(exc)}"
-        return keys, user_status
-
-    def delete_ssh_key(self, key_index: int) -> None:
-        keys = self.read_ssh_keys()
-        if key_index < 0 or len(keys) <= key_index:
-            raise InvalidParameterError(f"There is no key with index {key_index} in authorized_keys file of user {self.username}")
-        keys.pop(key_index)
-        try:
-            with self.__writeable_key_file().open("w") as key_file:
-                for value in keys:
-                    key_file.write(f"{value.strip()}\n")
-        except Exception as exc:
-            # If something went wrong it is probably caused by user playing manually with authorized_keys file, so we
-            # convert all exceptions blindly to SSHKeyManagementError which is "expected" error
-            # TODO analyze what can actually go wrong and raise "expected" error only in such cases, where we are sure
-            # it is not our fault
-            raise SSHKeyManagementError(f"For user {self.username}: {str(exc)}")
-
-    # Return home path for selected user to access .ssh directory and modify authorized_keys
-    def _get_user_ssh_directory(self) -> Path:
-        return Path(f"~{self.username}").expanduser()
-
-    def add_ssh_key(self, key: str) -> None:
-        self.__validate_key(key)
-
-        keys = self.read_ssh_keys()
-        new_key = SSHKey(key)
-        for value in keys:
-            existing_key = SSHKey(value)
-            # Please check description of add_publickey CLI command for updating the existing keys
-            if existing_key.hash_sha512() == new_key.hash_sha512():
-                raise InvalidPreconditionError("Key already present in authorized_keys")
-
-        with self.__writeable_key_file().open(mode='a') as fd:
-            fd.write(f"{key.strip()}\n")
-
-    def replace_ssh_keys_of_user(self, new_keys: List[str]) -> None:
-        for key_value in new_keys:
-            self.__validate_key(key_value)
-        self.__writeable_key_file().unlink()
-        for key_value in new_keys:
-            self.add_ssh_key(key_value)
 
 
 class CaseSensitiveConfigParser(RawConfigParser):
