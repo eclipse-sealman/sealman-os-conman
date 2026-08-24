@@ -23,6 +23,7 @@ import json
 import re
 import sys
 from collections import defaultdict
+from dataclasses import asdict
 from functools import partial
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, MutableMapping, Optional, Set, Tuple, Union
@@ -69,7 +70,7 @@ from mpa.device.common import RESOLVED_CONF, LINK_TO_RESOLVED_CONF, CaseSensitiv
 from mpa.network.common import AVAILABLE_REGDOMS, LAN_WIFI_INTERFACES
 from mpa.network.cellular_check import CellularCheck
 from mpa.network.dhcp_server import Dhcp4Server
-from mpa.network.cellular_debug import get_modem_info
+from mpa.network.cellular import get_modem_info
 from mpa.network.management import (
     get_configured_addresses_and_masks,
     get_configured_dns,
@@ -199,46 +200,40 @@ def get_cellular_config(interface: int) -> Union[None, str, Mapping[str, Any]]:
     return config
 
 
-def net_cellular_status(message: Optional[bytes] = None) -> Union[None, str, Mapping[str, Any]]:
-    if message is None:
-        raise RuntimeError("Message needs to be provided to net_cellular_status")
+def net_cellular_status(message: bytes) -> dict[str, Any]:
     payload = json.loads(message)
     interface = get_int(payload, "interface")
-    modem_data = get_modem_info(interface)
-    if modem_data:
-        data = modem_data.to_dict()
-        response = {
-            "cellular status": {
-                "connection status": {
-                    "status": data.get("generic", {}).get("state", None),
-                    "fail_reason": data.get("generic", {}).get("state_failed_reason", None),
-                    "access_technology": data.get("generic", {}).get("access_technologies", None),
-                    "registration": data.get("modem3gpp", {}).get("registration_state", None),
-                },
-                "signal": {
-                    "rssi": data.get("signalmetrics", {}).get("rssi", None),
-                    "rsrp": data.get("signalmetrics", {}).get("rsrp", None),
-                    "rsrq": data.get("signalmetrics", {}).get("rsrq", None),
-                },
-                "operator information": {
-                    "operator_name": data.get("sim", {}).get("operator_name", None),
-                    "operator_id": data.get("sim", {}).get("operator_id", None),
-                },
-                "equipment": {
-                    "modem": {
-                        "imei": data.get("modem3gpp", {}).get("imei", None),
-                    },
-                    "sim": {
-                        "iccid": data.get("sim", {}).get("iccid", None),
-                        "imsi": data.get("sim", {}).get("imsi", None),
-                        "lock_state": data.get("sim", {}).get("status", None),
-                    },
-                },
-            }
+    modem_info = get_modem_info(interface)
+    response = {
+        "cellular status": {
+            "connection status": {
+                "status": modem_info.modem.state,
+                "fail_reason": modem_info.modem.state_failed_reason,
+                "access_technology": modem_info.modem.access_technologies,
+                "registration": modem_info.modem.registration_state,
+            },
+            "operator information": {
+                "operator_name": modem_info.sim.operator_name,
+                "operator_id": modem_info.sim.operator_code
+            } if modem_info.sim is not None else {},
+            "signal": {},
+            "equipment": {
+                "modem": {"imei": modem_info.modem.imei},
+                "sim": {
+                    "iccid": modem_info.sim.iccid,
+                    "imsi": modem_info.sim.imsi,
+                    "lock_state": f"{modem_info.modem.unlock_required}, "
+                                  f"{'unlocked' if modem_info.sim.active == 'yes' else 'locked'}",
+                } if modem_info.sim is not None else {},
+            },
         }
-        return response
-    else:
-        raise RuntimeError("Selected modem did not response")
+    }
+    # We are returning signal metrics only if both signal metrics and sim info are available.
+    # Modem can present outdated signal metrics if sim is not present, so we are not returning it in that case.
+    if modem_info.signal_metrics is not None and modem_info.sim is not None:
+        response["cellular status"]["signal"] = asdict(modem_info.signal_metrics)
+
+    return response
 
 
 def get_eth_config(config: MutableMapping[str, Any]) -> MutableMapping[str, Any]:
@@ -427,14 +422,14 @@ def net_cellular_change_state(message: bytes) -> str:
     if value == 'on':
         config = get_cellular_config(interface)
         if not config:
-            raise InvalidPreconditionError("cellular{interface} modem is not configured")
+            raise InvalidPreconditionError(f"cellular{interface} modem is not configured")
         if isinstance(config, str):
             # get_cellular_config failed in strange way (currently only missing modem can lead to it)
             raise RuntimeError(f"Unexpected error while checking cellular{interface} config: {config}")
         mpa.network.management.turn_on_cellular(config, interface)
         return f"{RESPONSE_OK} Turned cellular{interface} on"
     # value shall be prepared by UI, so this shall not happen, hence RuntimeError
-    raise RuntimeError("Unrecognized state: {value}")
+    raise RuntimeError(f"Unrecognized state: {value}")
 
 
 def net_get_config() -> MutableMapping[str, Any]:
@@ -946,7 +941,6 @@ def main() -> None:
     in_bg(topics.net.wifi.ap.change_state, guarded(partial(net_wifi_change_state, 'ap')))
     in_bg(topics.net.wifi.localization.set_config, guarded(wifi_localization_set_config))
     messages[topics.net.wifi.localization.get_config] = guarded(sync(wifi_localization_get_config))
-    messages[topics.net.cellular.check] = guarded(sync(cellular_checklist))
     messages[topics.net.promiscous_mode.set_config] = guarded(sync(promiscous_mode_set_config))
     messages[topics.net.ids.change_state] = guarded(sync(change_ids_state))
     messages[topics.net.dhcp_server.get_config] = guarded(sync(dhcp_server_get_config))
