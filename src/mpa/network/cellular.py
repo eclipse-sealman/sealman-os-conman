@@ -30,9 +30,9 @@ class ModemError(RuntimeError):
 
 @dataclass(frozen=True)
 class SignalMetrics:
-    rsrp: int | None       # dBm
-    rsrq: float | None     # dB
-    rssi: int | None       # dBm
+    rsrp: int | None       # dBm, practical range -140 --- -44
+    rsrq: float | None     # dB, practical range -19.5 --- -3, only ~16 dB diff, keeping float to not lose accuracy
+    rssi: int | None       # dBm, practical range -113 --- -51
 
 
 @dataclass(frozen=True)
