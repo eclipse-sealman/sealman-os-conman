@@ -18,8 +18,7 @@ Common configuration constants
 from pathlib import Path
 
 CONFIG_DIR_ROOT = Path("/etc")
-SYSTEMD_ROOT = Path("/lib/systemd")
-CUSTOM_SYSTEMD_ROOT = Path("/etc/sealman/units")
+CUSTOM_SYSTEMD_ROOT = Path("/etc/eg/units")
 CONFIG_FORMAT_VERSION_TO_ASSUME_FOR_UNVERSIONED_CONFIG = "0.1"
 CONFIG_FORMAT_VERSION = "1.0"
 AZURE_CONFIG_VALIDATED_PATH = CONFIG_DIR_ROOT / "eg/azure_config_validated"
