@@ -47,7 +47,7 @@ from mpa.communication.common import ConflictingOperationInProgessError
 from mpa.communication.message_parser import get_optional_str
 from mpa.communication.inter_process_lock import InterProcessLock
 from mpa.communication.status_codes import CERTIFICATE
-from mpa.config.common import SYSTEMD_ROOT, CUSTOM_SYSTEMD_ROOT
+from mpa.config.common import CUSTOM_SYSTEMD_ROOT
 from mpa.config.configfiles import ConfigFiles
 from mpa.device.common import DEVICE_SET_CONFIG_LOCK, PROXY_CONFIG_FILE, SWUpdateScript
 from mpa.device.device_config import SetConfig
