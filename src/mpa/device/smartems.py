@@ -42,7 +42,6 @@ from mpa.communication.common import InvalidParameterError, \
                                  SmartEMSError, SWUpdateError, InvalidVersionError, InvalidImageFeaturesError
 from mpa.communication.client import Client  # import to get Client as type for mypy
 from mpa.communication.common import get_current_root_partition
-from mpa.communication.common import get_os_release_info
 from mpa.communication.common import ConflictingOperationInProgessError
 from mpa.communication.message_parser import get_optional_str
 from mpa.communication.inter_process_lock import InterProcessLock
@@ -54,6 +53,7 @@ from mpa.device.device_config import SetConfig
 from mpa.device.tpm import get_data_from_tpm_module
 from mpa.device.timer import update_timer
 from mpa.device.common import get_serial_number
+from mpa.device.os_info import OsInfo
 
 logger = Logger(f"{sys.argv[0] if __name__ == '__main__' else __name__}")
 
@@ -91,12 +91,14 @@ class SmartEMS:
     SMART_EMS_TRANSACTION_LOCK_FILE = config_files.add("lock_file", "eg/smart_ems_transaction_lock", is_expected=False)
     HARDWARE_VERSION_FILE = config_files.add("hw-version", "hw-version")
     SOFTWARE_VERSION_FILE = config_files.add("sw-version", "sw-version")
+    OS_RELEASE_FILE = config_files.add("os-release", "os-release")
     SMART_EMS_TIMER = config_files.add("smart_ems_timer", "smartems.timer", config_dir_root=CUSTOM_UNITS_DIR)
     config_files.verify()
     LOCK = InterProcessLock(SMART_EMS_TRANSACTION_LOCK_FILE, stale_lock_seconds=900)
 
     HW_VERSION = read_file_content(HARDWARE_VERSION_FILE).split(" ")[1].upper()
     SW_VERSION = read_file_content(SOFTWARE_VERSION_FILE).strip()
+    OS_INFO = OsInfo.from_str(read_file_content(OS_RELEASE_FILE))
 
     EMS_REQUEST_TEMPLATE: Dict[str, Any] = {
         'registrationId': '{reg_id}',
@@ -473,8 +475,8 @@ WantedBy=timers.target
                                                             'commandName': response_from_sems['commandName'],
                                                             'partition': get_current_root_partition(),
                                                             'sw_version': self.SW_VERSION,
-                                                            'install_timestamp': get_os_release_info()['INSTALL_TIMESTAMP'],
-                                                            'build_id': get_os_release_info()['BUILD_ID']}))
+                                                            'install_timestamp': self.OS_INFO.install_timestamp,
+                                                            'build_id': self.OS_INFO.build_id}))
 
     def __update_transaction_on_disk(self, key: str, value: Any) -> None:
         transaction_text = self.SMARTEMS_TRANSACTION_ID.read_text()
@@ -663,10 +665,9 @@ WantedBy=timers.target
         request_to_ems['commandStatus'] = 'error'
         return request_to_ems
 
-    def __optional_features_match(self, transaction: Mapping[str, Any], os_release_info: Mapping[str, Any]) -> bool:
+    def __optional_features_match(self, transaction: Mapping[str, Any]) -> bool:
         requested_gui_support = (get_optional_str(transaction, "requested_gui_support") == "TRUE")
-        present_gui_support = (get_optional_str(os_release_info, "WITH_GUI_SUPPORT") == '"TRUE"')
-        return requested_gui_support == present_gui_support
+        return requested_gui_support == self.OS_INFO.with_gui_support
 
     def __prepare_smartems_request_from_disk_stored_transaction_after_reboot(self) -> MutableMapping[str, Any]:
         request_and_transaction = self.__prepare_smartems_request_from_disk_stored_transaction_common()
@@ -677,9 +678,8 @@ WantedBy=timers.target
             if transaction['partition'] != get_current_root_partition():
                 if 'requested_version' in transaction:
                     if transaction['requested_version'] == self.SW_VERSION:
-                        os_release_info = get_os_release_info()
-                        if self.__optional_features_match(transaction, os_release_info):
-                            if transaction['install_timestamp'] != get_os_release_info()['INSTALL_TIMESTAMP']:
+                        if self.__optional_features_match(transaction):
+                            if transaction['install_timestamp'] != self.OS_INFO.install_timestamp:
                                 self.__add_success_params_to_message_to_smartems(request_to_ems,
                                                                                  "Successfuly booted from new firmware")
                                 return request_to_ems

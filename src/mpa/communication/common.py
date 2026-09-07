@@ -53,14 +53,9 @@ from mpa.communication.client import Client
 from mpa.common.logger import Logger
 from mpa.common.killer_thread import KillerThread
 from mpa.communication.process import run_command_unchecked
-from mpa.config.configfiles import ConfigFiles
 from mpa.communication.status_codes import SUCCESS
 
 logger = Logger(__name__)
-
-config_files: ConfigFiles = ConfigFiles()
-OS_RELEASE_FILE: Path = config_files.add("os_release", "os-release")
-config_files.verify()
 
 T = TypeVar('T')
 
@@ -773,17 +768,6 @@ def get_current_root_partition() -> str:
                 if is_valid_uuid(part):
                     current_root_partition = part
     return current_root_partition
-
-
-def get_os_release_info() -> Mapping[str, str]:
-    with open(OS_RELEASE_FILE, 'r') as os_release:
-        os_release_info = os_release.read()
-    os_list = os_release_info.strip().split('\n')
-    os_info_dict = {}
-    for item in os_list:
-        key, value = item.split("=")
-        os_info_dict.update({key: value})
-    return os_info_dict
 
 
 def build_nested_dict(dot_separated_keys: str, value: T) -> Dict[str, Any]:
