@@ -213,8 +213,8 @@ def net_cellular_status(message: bytes) -> dict[str, Any]:
                 "registration": modem_info.modem.registration_state,
             },
             "operator information": {
-                "operator_name": modem_info.sim.operator_name,
-                "operator_id": modem_info.sim.operator_code
+                "operator_name": modem_info.modem.operator_name,
+                "operator_id": modem_info.modem.operator_code
             } if modem_info.sim is not None else {},
             "signal": {},
             "equipment": {
