@@ -89,7 +89,7 @@ class SetSerialError(RuntimeError):
     pass
 
 
-class SmartEMSError(RuntimeError):
+class SmartEmsError(RuntimeError):
     pass
 
 
@@ -131,7 +131,7 @@ expected_error_messages["InvalidPreconditionError"] = "Operation is impossible i
 expected_error_messages["ConflictingOperationInProgessError"] = expected_error_messages["InvalidPreconditionError"]
 expected_error_messages["InvalidParameterError"] = "Invalid value of parameter provided by the user was detected"
 expected_error_messages["TransactionRolledBackError"] = "Command requiring confirmation was rolled-back"
-expected_error_messages["SmartEMSError"] = "Received invalid response from Smart EMS"
+expected_error_messages["SmartEmsError"] = "Received invalid response from Smart EMS"
 expected_error_messages["SSHKeyManagementError"] = "Received invalid response from SSH keys managment sub-system"
 expected_error_messages["NetworkManagerError"] = "Received invalid response from NetworkManager daemon"
 expected_error_messages["NMDeviceActivationError"] = "Connection activation failed"
