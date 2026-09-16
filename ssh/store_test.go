@@ -188,8 +188,12 @@ func TestUserKeyStoreList(t *testing.T) {
 		if err := os.WriteFile(keysPath, []byte(malformedKeyLine), 0644); err != nil {
 			t.Fatalf("failed to write malformed authorized_keys: %v", err)
 		}
-		if _, err := store.List(); err == nil {
-			t.Error("expected error reading malformed authorized_keys file")
+		keys, err := store.List()
+		if err != nil {
+			t.Fatalf("List() should drop malformed lines instead of failing: %v", err)
+		}
+		if len(keys) != 0 {
+			t.Errorf("got %d keys, want 0", len(keys))
 		}
 	})
 

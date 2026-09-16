@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/eclipse-sealman/sealman-os-conman/accounts"
 )
@@ -118,18 +117,15 @@ func (s UserKeyStore) ListStrings() ([]string, error) {
 // Add appends a single new key, rejecting it if it's a duplicate of one
 // already present.
 func (s UserKeyStore) Add(rawKey string) error {
-	newKeys, err := parseAuthorizedKeys([]byte(rawKey))
+	newKey, err := parseAuthorizedKey(rawKey)
 	if err != nil {
 		return err
-	}
-	if len(newKeys) != 1 {
-		return fmt.Errorf("expected one authorized key, got: %d", len(newKeys))
 	}
 	keys, err := s.List()
 	if err != nil {
 		return err
 	}
-	keys, err = addAuthorizedKey(newKeys[0], keys)
+	keys, err = addAuthorizedKey(newKey, keys)
 	if err != nil {
 		return err
 	}
@@ -152,7 +148,7 @@ func (s UserKeyStore) Remove(idx int) error {
 // Replace overwrites the entire authorized_keys file with rawKeys,
 // rejecting the set if it contains duplicates.
 func (s UserKeyStore) Replace(rawKeys []string) error {
-	keys, err := parseAuthorizedKeys([]byte(strings.Join(rawKeys, "\n")))
+	keys, err := parseAuthorizedKeyList(rawKeys)
 	if err != nil {
 		return err
 	}

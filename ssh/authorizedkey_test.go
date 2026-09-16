@@ -14,9 +14,9 @@ package ssh
 import (
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
-
-	"golang.org/x/crypto/ssh"
 )
 
 // Test keys generated for testing purposes only.
@@ -26,26 +26,21 @@ const (
 	keyWithOptions              = "restrict,command=\"echo hello\" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBrLRhxFSNpH/4LOWkZT3T2KL/W0Qv7UwZFQUBf4Jrmo"
 	keyWithComment              = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGqBMkRpRGVHkHsLhYuqBaDzq1JHYxDt7Gnx3WnQfkiL key-with-comment"
 	keyWithoutOptionsAndComment = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGqBMkRpRGVHkHsLhYuqBaDzq1JHYxDt7Gnx3WnQfkiL"
-	malformedKeyLine            = "this-is-not-a-valid-ssh-key"
+	malformedKeyLine            = "this-is-not-a-valid-ssh-key"  // don't add quotable characters or update TestParseAuthorizedKeyList as it check if %q emited it verbatim now
 )
 
 // parseTestKey is shared across this file and store_test.go.
 func parseTestKey(t *testing.T, raw string) AuthorizedKey {
 	t.Helper()
 
-	key, comment, options, _, err := ssh.ParseAuthorizedKey([]byte(raw))
+	key, err := parseAuthorizedKey(raw)
 	if err != nil {
 		t.Fatalf("failed to parse test key: %v", err)
 	}
-
-	return AuthorizedKey{
-		Options: options,
-		Key:     key,
-		Comment: comment,
-	}
+	return key
 }
 
-func TestAuthorizedKeyParseAndString(t *testing.T) {
+func TestParseAuthorizedKeyParseUnderstandsValidKeys(t *testing.T) {
 	tests := []struct {
 		name string
 		raw  string
@@ -70,16 +65,30 @@ func TestAuthorizedKeyParseAndString(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			keys, err := parseAuthorizedKeys([]byte(tt.raw))
+			key, err := parseAuthorizedKey(tt.raw)
 			if err != nil {
 				t.Fatalf("parseAuthorizedKey() failed: %s", err.Error())
 			}
-			if len(keys) != 1 {
-				t.Errorf("got %d keys, want 1", len(keys))
-			}
-			key := keys[0]
 			if got := key.String(); got != tt.raw {
 				t.Errorf("String() = %q, want %q", got, tt.raw)
+			}
+		})
+	}
+}
+
+func TestParseAuthorizedKeyRejectsCommentsAndGarbage(t *testing.T) {
+	cases := map[string]string{
+		"malformed":       malformedKeyLine,
+		"empty":           "",
+		"blank":           "  \n",
+		"comment":         "# " + keyWithComment,
+		"two entries":     keyWithComment + "\n" + keyWithOptions,
+		"entry then junk": keyWithComment + "\n" + malformedKeyLine,
+	}
+	for name, input := range cases {
+		t.Run(name, func(t *testing.T) {
+			if _, err := parseAuthorizedKey(input); err == nil {
+				t.Errorf("expected error for %q", input)
 			}
 		})
 	}
@@ -241,19 +250,50 @@ func TestConvertKeysToStringsEmpty(t *testing.T) {
 	}
 }
 
-func TestParseAuthorizedKeysError(t *testing.T) {
-	if _, err := parseAuthorizedKeys([]byte(malformedKeyLine)); err == nil {
-		t.Error("expected error parsing malformed key data")
+func TestParseAuthorizedKeyList(t *testing.T) {
+	// Two keys, one requires trimming
+	keys, err := parseAuthorizedKeyList([]string{keyWithComment, " " + keyWithOptions + "\n"})
+	if err != nil {
+		t.Fatalf("parseAuthorizedKeyList() failed: %v", err)
+	}
+	if got := authorizedKeysToStrings(keys); !slices.Equal(got, []string{keyWithComment, keyWithOptions}) {
+		t.Errorf("got %q", got)
+	}
+	_, err = parseAuthorizedKeyList([]string{keyWithComment, malformedKeyLine})
+	if err == nil {
+		t.Fatal("expected error for malformed second key")
+	}
+	for _, expected_substring := range []string{"key 1", malformedKeyLine} {
+		if !strings.Contains(err.Error(), expected_substring) {
+			t.Errorf("error %q should mention %q", err.Error(), expected_substring)
+		}
+	}
+	if keys, err := parseAuthorizedKeyList(nil); err != nil || len(keys) != 0 {
+		t.Errorf("nil input: got %v, %v", keys, err)
 	}
 }
 
-func TestParseAuthorizedKeysEmpty(t *testing.T) {
-	keys, err := parseAuthorizedKeys(nil)
-	if err != nil {
-		t.Fatalf("parseAuthorizedKeys() failed on empty input: %v", err)
+func TestParseAuthorizedKeysFileContent(t *testing.T) {
+	cases := []struct {
+		name      string
+		input     string
+		wantLines []string // String() of each parsed key, in order
+	}{
+		{"empty", "", []string{}},
+		{"comment as last line", keyWithComment + "\n# trailing comment\n", []string{keyWithComment}},
+		{"header comment", strings.Join(authorizedKeysComment, "\n") + "\n" + keyWithComment + "\n", []string{keyWithComment}},
+		{"only comments", "# one\n# two\n", []string{}},
+		{"commented-out key is a comment", "# " + keyWithOptionsAndComment + "\n" + keyWithComment + "\n", []string{keyWithComment}},
+		{"garbage anywhere is dropped", malformedKeyLine + "\n" + keyWithComment + "\n" + malformedKeyLine + "\n" + keyWithOptions + "\n" + malformedKeyLine, []string{keyWithComment, keyWithOptions}},
+		{"blank lines and CRLF", "\r\n" + keyWithOptions + "\r\n\r\n" + keyWithComment + "\r\n", []string{keyWithOptions, keyWithComment}},
 	}
-	if len(keys) != 0 {
-		t.Errorf("got %d keys, want 0", len(keys))
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := authorizedKeysToStrings(parseAuthorizedKeysFileContent([]byte(c.input)))
+			if !slices.Equal(got, c.wantLines) {
+				t.Errorf("got %q, want %q", got, c.wantLines)
+			}
+		})
 	}
 }
 
@@ -282,13 +322,17 @@ func TestReadAuthorizedKeysErrors(t *testing.T) {
 		}
 	})
 
-	t.Run("malformed contents", func(t *testing.T) {
+	t.Run("malformed contents are dropped", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "authorized_keys")
-		if err := os.WriteFile(path, []byte(malformedKeyLine), 0644); err != nil {
+		if err := os.WriteFile(path, []byte(malformedKeyLine+"\n"+keyWithComment+"\n"), 0644); err != nil {
 			t.Fatalf("failed to write test file: %v", err)
 		}
-		if _, err := readAuthorizedKeys(path); err == nil {
-			t.Error("expected error reading malformed authorized_keys file")
+		keys, err := readAuthorizedKeys(path)
+		if err != nil {
+			t.Fatalf("readAuthorizedKeys() should not fail on malformed lines: %v", err)
+		}
+		if got := authorizedKeysToStrings(keys); !slices.Equal(got, []string{keyWithComment}) {
+			t.Errorf("got %q, want only the valid key", got)
 		}
 	})
 }
@@ -299,5 +343,28 @@ func TestWriteAuthorizedKeysError(t *testing.T) {
 	k1 := parseTestKey(t, keyWithOptionsAndComment)
 	if err := writeAuthorizedKeys(path, []AuthorizedKey{k1}); err == nil {
 		t.Error("expected error writing to nonexistent directory")
+	}
+}
+
+func TestWriteAuthorizedKeysRegeneratesHeaderAndDropsIgnoredLines(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "authorized_keys")
+	original := "# user's own note\n" + keyWithComment + "\n" + malformedKeyLine + "\n# " + keyWithOptions + "\n# another note\n"
+	if err := os.WriteFile(path, []byte(original), 0644); err != nil {
+		t.Fatal(err)
+	}
+	keys, err := readAuthorizedKeys(path)
+	if err != nil {
+		t.Fatalf("readAuthorizedKeys() failed: %v", err)
+	}
+	if err := writeAuthorizedKeys(path, keys); err != nil {
+		t.Fatalf("writeAuthorizedKeys() failed: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := strings.Join(authorizedKeysComment, "\n") + "\n" + keyWithComment + "\n"
+	if string(data) != want {
+		t.Errorf("regenerated file:\n%s\nwant:\n%s", data, want)
 	}
 }

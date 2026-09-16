@@ -13,12 +13,22 @@ package ssh
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"golang.org/x/crypto/ssh"
 )
+
+var authorizedKeysComment = []string{
+	"# This file is managed by mgmtd-ssh and is regenerated on every change.",
+	"# On write comment lines and lines that are not valid authorized_keys",
+	"# entries are removed automatically and this header is added.",
+}
+
+
 
 // AuthorizedKey represents a single entry in an OpenSSH authorized_keys
 // file: a public key together with any leading options (e.g.
@@ -103,36 +113,63 @@ func authorizedKeysToStrings(keys []AuthorizedKey) []string {
 	return result
 }
 
-// parseAuthorizedKeys parses the contents of an authorized_keys file,
-// returning one AuthorizedKey per line. It returns an error on the first
-// line it cannot parse.
-func parseAuthorizedKeys(data []byte) ([]AuthorizedKey, error) {
-	var keys []AuthorizedKey
-	for len(data) > 0 {
-		key, comment, options, rest, err := ssh.ParseAuthorizedKey(data)
+// parseAuthorizedKey expects single line, returns parsed key or error on
+// comments and invalid keys.
+func parseAuthorizedKey(rawKey string) (AuthorizedKey, error) {
+	rawKey = strings.TrimSpace(rawKey)
+	if len(rawKey) == 0 || rawKey[0] == '#' {
+		return AuthorizedKey{}, errors.New("no key found")
+	}
+	key, comment, options, rest, err := ssh.ParseAuthorizedKey([]byte(rawKey))
+	if err != nil {
+		return AuthorizedKey{}, err
+	}
+	if len(bytes.TrimSpace(rest)) > 0 {
+		return AuthorizedKey{}, errors.New("expected exactly one authorized_keys entry")
+	}
+	return AuthorizedKey{Options: options, Key: key, Comment: comment}, nil
+}
+
+// parseAuthorizedKeyList parses entries supplied by user/socket, one entry
+// per element. We expect only keys via this route, so parsing is strict.
+func parseAuthorizedKeyList(rawKeyList []string) ([]AuthorizedKey, error) {
+	keys := make([]AuthorizedKey, 0, len(rawKeyList))
+	for i, rawKey := range rawKeyList {
+		key, err := parseAuthorizedKey(rawKey)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("key %d (%q): %w", i, rawKey, err)
 		}
-		keys = append(keys, AuthorizedKey{options, key, comment})
-		data = rest
+		keys = append(keys, key)
 	}
 	return keys, nil
 }
 
-// readAuthorizedKeys reads and parses the authorized_keys file at path.
-// It returns an error if the file cannot be read or its contents cannot
-// be parsed.
+// parseAuthorizedKeysFile ignores things like ssh --- side effect is that we
+// drop comments and invalid keys silently
+func parseAuthorizedKeysFileContent(fileContent []byte) []AuthorizedKey {
+	var keys []AuthorizedKey
+	for _, line := range strings.Split(string(fileContent), "\n") {
+		if key, err := parseAuthorizedKey(line); err == nil {
+			keys = append(keys, key)
+		}
+	}
+	return keys
+}
+
 func readAuthorizedKeys(path string) ([]AuthorizedKey, error) {
+	// We don't expect this file to be huge ever, and reading it as a whole
+	// into memory simplifies code
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	return parseAuthorizedKeys(bytes.TrimSpace(data))
+	return parseAuthorizedKeysFileContent(data), nil
 }
 
 // writeAuthorizedKeys writes keys to path in authorized_keys format,
 // one entry per line, overwriting any existing content. It does not
 // create missing parent directories.
 func writeAuthorizedKeys(path string, keys []AuthorizedKey) error {
-	return os.WriteFile(path, []byte(strings.Join(authorizedKeysToStrings(keys), "\n")+"\n"), 0644)
+	lines := append(slices.Clone(authorizedKeysComment), authorizedKeysToStrings(keys)...)
+	return os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0644)
 }
