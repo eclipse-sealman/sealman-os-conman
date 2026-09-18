@@ -45,7 +45,7 @@ from mpa.communication.common import InvalidPreconditionError, InvalidParameterE
 from mpa.communication.common import SSHKeyManagementError
 from mpa.communication.common import TransactionRolledBackError
 from mpa.communication.common import expect_empty_message
-from mpa.communication.common import read_file_content
+from mpa.communication.common import read_text_or_empty
 from mpa.communication.message_parser import get_bool, \
                                              get_dict, \
                                              get_enum_str, \
@@ -88,7 +88,12 @@ from mpa.device.common import SYSCTL_SYSRQ_REBOOT_VALUE
 from mpa.device.common import SYSCTL_SYSRQ_IGNORE_VALUE
 from mpa.device.common import ConfctlParser
 from mpa.device.device_config import SetConfig, check_if_backup_config_exists
-from mpa.device.smartems import SmartEMS
+from mpa.device.os_info import OsInfo
+from mpa.smartems.client import DefaultSmartEmsClient
+from mpa.smartems.common import DeviceContext
+from mpa.smartems.config import SmartEmsConfig
+from mpa.smartems.handlers import create_default_command_handlers
+from mpa.smartems.smartems import SmartEms
 
 logger = Logger(f"{sys.argv[0] if __name__ == '__main__' else __name__}")
 
@@ -98,7 +103,7 @@ logrotate_global_config_file = config_files.add("logrotated", "logrotate.conf")
 smartems_config_file = config_files.add("smartems", "smartems/config.cfg")
 serial_ports_config = config_files.add("serial-ports", "eg/serial.conf")
 hardware_version_file = config_files.add("hw-version", "hw-version")
-software_version_file = config_files.add("sw-version", "sw-version")
+os_release_file = config_files.add("os-release", "os-release")
 SSH_AUTH_CONFIG = config_files.add("ssh_auth_config", "ssh/mgmtd/auth_config")
 SSH_MAXSESSIONS = config_files.add("ssh_maxsessions", "ssh/mgmtd/maxsessions")
 SSH_MAXSTARTUPS = config_files.add("ssh_maxstartups", "ssh/mgmtd/maxstartups")
@@ -108,9 +113,6 @@ CERT_STORE_PATH = config_files.add("ca-certificates_dir", "ca-certificates/", co
 LOGIN_TIMEOUT_CONFIG_FILE = config_files.add("tmout.sh", "eg/tmout.sh", is_expected=False)
 config_files.add("eg_config_dir", "eg/")
 config_files.verify()
-
-HW_VERSION = read_file_content(hardware_version_file)
-SW_VERSION = read_file_content(software_version_file)
 
 logrotate_template = """
 /var/log/*log {{
@@ -1046,8 +1048,27 @@ def main() -> None:
     def in_bg(topic: str, fun: com_client.SyncHandlerCallable, post_respond: Optional[Callable[[Any], None]] = None) -> None:
         messages[topic] = background(fun, com_client.respond_to(_client, topic), post_respond=post_respond)
 
+    os_info = OsInfo.from_str(read_text_or_empty(os_release_file))
+    hardware_version = read_text_or_empty(hardware_version_file)
+    reg_id, endorsement_key = get_data_from_tpm_module()
+    device_context = DeviceContext(
+        serial_number=get_serial_number(),
+        firmware_version=os_info.version_id or "UNKNOWN",
+        hardware_version=hardware_version.strip().split(" ")[1].upper() if hardware_version else "UNKNOWN",
+        registration_id=reg_id,
+        endorsement_key=endorsement_key,
+    )
+    smartems_config = SmartEmsConfig.load()
+    smartems_client = DefaultSmartEmsClient(
+        device_context, smartems_config, Path("/tmp"), _client, debug_mode=config_files.is_debug_mode_enabled()
+    )
+    smartems = SmartEms(
+        config=smartems_config,
+        client=smartems_client,
+        handlers=create_default_command_handlers(_client, smartems_client, os_info),
+        messenger=_client,
+    )
     messages = {}
-    smartems = SmartEMS(_client)
     in_bg(topics.azure.set_config, guarded(azure.set_config))
     messages[topics.azure.get_config] = guarded(sync(azure.get_config(with_privates=False)))
     messages[topics.azure.get_config_with_privates] = guarded(sync(azure.get_config(with_privates=True)))
@@ -1084,7 +1105,7 @@ def main() -> None:
     messages[topics.dev.logrotate.get_config] = guarded(sync(logrotate_get_config))
     messages[topics.smart_ems.set_config] = guarded(sync(smartems.set_ems_config))
     messages[topics.smart_ems.get_config] = guarded(sync(smartems.get_ems_config))
-    in_bg(topics.smart_ems.check_smart_ems, guarded(smartems.check_smart_ems))
+    in_bg(topics.smart_ems.check_smart_ems, guarded(smartems.check))
     messages[topics.smart_ems.manage_cert] = guarded(sync(smartems.manage_cert))
     messages[topics.dev.datetime.get_config] = guarded(sync(date_time.get_config))
     messages[topics.dev.datetime.set_config] = guarded(sync(date_time.set_config))
@@ -1123,7 +1144,7 @@ def main() -> None:
         # (or any other issue leaving systemd-resolved disabled)
         run_command_unchecked("systemctl enable --now systemd-resolved")
         check_if_backup_config_exists(_client)
-        smartems.check_if_smartems_transaction_in_progress()
+        smartems.finish_pending_transaction()
 
     while True:
         try:
