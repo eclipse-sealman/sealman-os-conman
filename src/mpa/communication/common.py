@@ -725,3 +725,11 @@ def get_current_root_partition() -> str:
 # Also consider integrating similar code we have in mgmtd-ovpn and for serials in mgmd-device
 def get_service_status(service: str, status_type: str = "is-active") -> bool:
     return run_command_unchecked(f"systemctl {status_type} --quiet {service}.service").returncode == SUCCESS
+
+
+def read_text_or_empty(file: Path) -> str:
+    try:
+        return file.read_text()
+    except Exception as e:
+        logger.error(f"Failed to read file {file}: {e}")
+    return ""
