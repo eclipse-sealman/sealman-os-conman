@@ -673,23 +673,6 @@ def is_network_address_correct(address: str, netmask: int) -> Tuple[bool, str]:
     return is_valid, proposed_correct_address
 
 
-# Name of this function is misleading --- it not only reads content, but also converts generic OSError into very
-# specific one InvalidPreconditionError. In general we use InvalidPreconditionError to signal to user, that he tried to
-# execute command while device is in incorrect state (e.g. tried to enable something without first providing
-# configuration for that something). So this method shall be used only if the fact that file is missing can be caused by
-# user executing commands in e.g. invalid sequence. Name of this function does not reveal this specific use case for
-# which it shall be applicable.
-# Additionally, as we are converting ANY OSError, it can happen that some other issue will be hidden and incorrectly
-# reported.
-# TODO analyze where this method is used and correct issues mentioned above
-def read_file_content(filepath: Union[Path, str]) -> str:
-    try:
-        with open(filepath, "r") as f:
-            return f.read()
-    except OSError:
-        raise InvalidPreconditionError(f"Requested file {filepath} does not exist")
-
-
 def get_timezones() -> List[str]:
     timezones = run_command_unchecked("timedatectl list-timezones")
     return timezones.stdout.decode('UTF-8').split()
