@@ -71,6 +71,7 @@ from mpa.device.tpm import get_data_from_tpm_module
 from mpa.device.common import DEVICE_SET_CONFIG_LOCK
 from mpa.device.common import SshAction
 from mpa.device.common import SSH_KEY_ALLOWED_PRIMARY_GROUPS
+from mpa.device.common import get_boot_time
 from mpa.device.common import get_user_primary_group, get_user_list
 from mpa.device.common import PROXY_CONFIG_FILE
 from mpa.device.common import MOTD_FILE
@@ -1051,12 +1052,14 @@ def main() -> None:
     os_info = OsInfo.from_str(read_text_or_empty(os_release_file))
     hardware_version = read_text_or_empty(hardware_version_file)
     reg_id, endorsement_key = get_data_from_tpm_module()
+    boot_time = get_boot_time()
     device_context = DeviceContext(
         serial_number=get_serial_number(),
         firmware_version=os_info.version_id or "UNKNOWN",
         hardware_version=hardware_version.strip().split(" ")[1].upper() if hardware_version else "UNKNOWN",
         registration_id=reg_id,
         endorsement_key=endorsement_key,
+        boot_time=boot_time,
     )
     smartems_config = SmartEmsConfig.load()
     smartems_client = DefaultSmartEmsClient(
@@ -1065,7 +1068,7 @@ def main() -> None:
     smartems = SmartEms(
         config=smartems_config,
         client=smartems_client,
-        handlers=create_default_command_handlers(_client, smartems_client, os_info),
+        handlers=create_default_command_handlers(_client, smartems_client, os_info, boot_time),
         messenger=_client,
     )
     messages = {}
