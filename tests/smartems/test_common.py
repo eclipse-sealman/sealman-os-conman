@@ -40,6 +40,7 @@ class TestDeviceContext:
             hardware_version="hw1",
             registration_id="reg1",
             endorsement_key="key1",
+            boot_time=1234567890,
         )
         assert ctx.to_dict() == {
             "serialNumber": "SN123",
@@ -47,6 +48,7 @@ class TestDeviceContext:
             "hardwareVersion": "hw1",
             "registrationId": "reg1",
             "endorsementKey": "key1",
+            "bootTime": 1234567890,
         }
 
     def test_is_frozen(self) -> None:
@@ -56,6 +58,7 @@ class TestDeviceContext:
             hardware_version="hw1",
             registration_id="reg1",
             endorsement_key="key1",
+            boot_time=1234567890,
         )
         with pytest.raises(AttributeError):
             ctx.serial_number = "changed"

@@ -52,6 +52,7 @@ class CommandName(StrEnum):
     GET_CONFIG = "get_config"
     UPDATE_CONFIG = "update_config"
     UPDATE_FIRMWARE = "update_firmware"
+    REBOOT = "reboot"
 
 
 class ErrorCategory(StrEnum):
@@ -70,14 +71,16 @@ class DeviceContext:
     hardware_version: str
     registration_id: str
     endorsement_key: str
+    boot_time: int
 
-    def to_dict(self) -> dict[str, str]:
+    def to_dict(self) -> dict[str, str | int]:
         return {
             "serialNumber": self.serial_number,
             "firmwareVersion": self.firmware_version,
             "hardwareVersion": self.hardware_version,
             "registrationId": self.registration_id,
             "endorsementKey": self.endorsement_key,
+            "bootTime": self.boot_time,
         }
 
 

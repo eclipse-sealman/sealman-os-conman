@@ -197,7 +197,7 @@ class SmartEms:
                     # TODO: if we get reports from field about abrupted firmware updates or
                     # failed reboots we may want to change reboot trigger timing (5 seconds)
                     # special case - immediately return
-                    # send response after reboot and successful verification of the update
+                    # send response after reboot
                     # check _finish_pending_transaction()
                     if "commandStatus" not in transaction:
                         return

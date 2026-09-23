@@ -282,3 +282,16 @@ def reboot_device(message: bytes) -> None:
     expect_empty_message(message, "reboot_device")
     delayed_reboot = threading.Timer(5, reboot)
     delayed_reboot.start()
+
+
+def parse_boot_time(lines: Iterator[str]) -> int:
+    for line in lines:
+        if line.startswith("btime"):
+            return int(line.strip().split()[1])
+
+    raise RuntimeError("Boot time not found")
+
+
+def get_boot_time() -> int:
+    with Path("/proc/stat").open() as f:
+        return parse_boot_time(f)

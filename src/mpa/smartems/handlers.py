@@ -24,6 +24,7 @@ from mpa.common.common import RESPONSE_OK
 from mpa.communication import topics
 from mpa.communication.client import Client as CommunicationClient
 from mpa.communication.common import get_current_root_partition
+from mpa.device.common import reboot_device
 from mpa.device.os_info import OsInfo
 from mpa.swupdate.mgmtd_swupdate import full_update_with_reboot
 
@@ -200,14 +201,40 @@ class FirmwareService:
         full_update_with_reboot(firmware_path)
 
 
+class RebootService:
+    def __init__(self, boot_time: int) -> None:
+        self._boot_time = boot_time
+
+    def process(self, transaction: dict[str, Any]) -> dict[str, Any]:
+        transaction["previous_boot_time"] = self._boot_time
+        self._reboot()
+        return transaction
+
+    def finish(self, transaction: dict[str, Any]) -> dict[str, Any]:
+        previous_boot_time = transaction.pop("previous_boot_time", None)
+        if previous_boot_time is None:
+            raise AbruptedCommandError("Reboot was not initiated properly")
+
+        if previous_boot_time >= self._boot_time:
+            raise AbruptedCommandError("Reboot failed: boot time did not advance")
+
+        transaction["commandStatus"] = CommandStatus.SUCCESS.value
+        return transaction
+
+    def _reboot(self) -> None:
+        reboot_device(b"")
+
+
 def create_default_command_handlers(
     communication_client: CommunicationClient,
     smartems_client: SmartEmsClient,
     os_info: OsInfo,
+    boot_time: int,
 ) -> dict[str, CommandHandler]:
     config_service = ConfigService(communication_client)
     return {
         CommandName.GET_CONFIG.value: config_service,
         CommandName.UPDATE_CONFIG.value: config_service,
         CommandName.UPDATE_FIRMWARE.value: FirmwareService(smartems_client, os_info, communication_client),
+        CommandName.REBOOT.value: RebootService(boot_time),
     }
