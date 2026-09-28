@@ -31,8 +31,7 @@ from mpa.communication import client as com_client
 from mpa.communication.client import guarded
 from mpa.communication.client import sync, Async
 from mpa.communication.client import background
-from mpa.communication.common import expect_empty_message
-from mpa.communication.common import InvalidParameterError
+from mpa.communication.common import InvalidParameterError, expect_empty_message, is_response_ok
 from mpa.communication.inter_process_lock import InterProcessLock
 from mpa.communication.message_parser import (
     get_dict, get_ip46, get_ip46_list, get_optional_bool, get_optional_int, get_str, get_int
@@ -253,11 +252,9 @@ def docker_network_pools_set_config(message: bytes, restart_docker: bool = True)
 
 
 def docker_set_config(query_message: bytes, from_part: bytes, query_message_id: bytes) -> Async:
-    # We are sending 2 messages in a row --- one to ourselves (to set dns), second to docker.compose
-    # We cannot directly process dns setting here because of the way locking and restarting of
-    # docker is performed there --- doing it in background thread would prevent proper # error
-    # reporting from locking, # and doing it in foreground prevents processing of other messages in
-    # this daemon for to long
+    # We are sending 2 messages in a row --- one to ourselves (network_pools), second to docker.compose. We cannot
+    # directly process network pools here because it is restarting docker (which can take long enough to block pings),
+    # we send message because using background thread would not simplify code, as we send message to compose anyway
     config = get_dict(json.loads(query_message), "docker")
 
     def respond(message: Union[bytes, str]) -> Optional[bool]:
@@ -266,10 +263,15 @@ def docker_set_config(query_message: bytes, from_part: bytes, query_message_id: 
             return False
         return None
 
+    def set_compose_config(message: Union[bytes, str]) -> Optional[bool]:
+        if isinstance(message, bytes) and is_response_ok(message):
+            _client.query(topics.docker.compose.set_config, config, handler=respond)
+            return None
+        return respond(message)  # Something went wrong in network_pools.set_config --- just forward back response
+
     docker_params_set(json.dumps(config).encode(), restart_docker=False)
     docker_dns_set_config(json.dumps(config).encode(), restart_docker=False)
-    docker_network_pools_set_config(json.dumps(config).encode(), restart_docker=True)
-    _client.query(topics.docker.compose.set_config, config, handler=respond)
+    _client.query(topics.docker.network_pools.set_config, config, handler=set_compose_config)
     return Async()
 
 
