@@ -40,7 +40,7 @@ def cli() -> None:
     """Manage docker and compose files configuration."""
 
 
-@cli.command_with_client()
+@cli.command_with_client(timeout_ms=60_000)
 def apply(client: Client) -> None:
     """Restart docker service to apply changes docker DNS configuration.
 
