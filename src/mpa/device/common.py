@@ -13,6 +13,7 @@
 # Standard imports
 import grp
 import pwd
+import secrets
 import socket
 import threading
 from asyncio import IncompleteReadError
@@ -197,7 +198,7 @@ def read_gea_serial_number(eeprom_file: Path) -> Optional[str]:
 
 @cache
 def get_serial_number() -> str:
-    DEVICE_SERIAL_NUMBER = "unknown_serial_number"
+    DEVICE_SERIAL_NUMBER = f"unknown_serial_number_{secrets.token_hex(4)}"
     try:
         # TODO We create /dev/eeprom symlink in gea devices, so its presence is indicator of gea
         # device, in long term we want plugin system for serial numbers (see MPA-1628)
