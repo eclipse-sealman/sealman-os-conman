@@ -23,7 +23,6 @@ import json
 import pyroute2  # type: ignore
 import ipaddress
 import sys
-import tempfile
 import uuid
 from distutils.util import strtobool
 from pathlib import Path
@@ -743,15 +742,3 @@ def file_check(file: str | Path, mode: str) -> Path:
         ...
 
     return Path(file)
-
-
-@argument_type_error_wrapper
-def writable_file(file: str) -> Path:
-    file_path = Path(file)
-    if file_path.exists():
-        return file_check(file_path, "w")
-
-    with tempfile.TemporaryFile("w", dir=Path(file).parent):
-        ...
-
-    return file_path
