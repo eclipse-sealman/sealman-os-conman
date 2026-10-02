@@ -15,7 +15,6 @@ from enum import Enum
 
 # GENERAL SYSTEM CODES
 SUCCESS = 0
-FAILURE = 1
 YES = 'y'
 NO = 'n'
 
