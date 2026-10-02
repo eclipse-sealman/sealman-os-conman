@@ -53,10 +53,6 @@ class CallerOfChildClassIsValid:
             raise RuntimeError("Missing verification function in {type(self)}")
 
 
-class PresetHelpers:
-    ENABLED: Path
-
-
 class PresetBase(CallerOfChildClassIsValid):
     '''
     Base for basic preset actions.
