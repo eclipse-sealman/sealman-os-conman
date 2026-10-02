@@ -675,18 +675,6 @@ def is_network_address_correct(address: str, netmask: int) -> Tuple[bool, str]:
     return is_valid, proposed_correct_address
 
 
-# TODO replace with distutils.util.strtobool
-def string_to_bolean(svalue: Union[bool, str]) -> bool:
-    if isinstance(svalue, bool):
-        return svalue
-    if svalue.lower() in ['yes', 'y']:
-        return True
-    elif svalue.lower() in ['no', 'n']:
-        return False
-    else:
-        raise ArgumentTypeError('Boolean value expected.')
-
-
 # Name of this function is misleading --- it not only reads content, but also converts generic OSError into very
 # specific one InvalidPreconditionError. In general we use InvalidPreconditionError to signal to user, that he tried to
 # execute command while device is in incorrect state (e.g. tried to enable something without first providing
