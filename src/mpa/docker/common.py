@@ -67,9 +67,9 @@ def validate_and_run_compose(compose_dir: Path, force_recreate: bool = False) ->
         logger.error(f"Validation or startup failed for compose '{compose_dir.name}', removing it: {e}")
         shutil.rmtree(compose_dir, ignore_errors=True)
         raise
- 
+
     return RESPONSE_OK
- 
+
 
 def docker_compose_up_async(*compose_dirs: Path, force_recreate: bool = False, timeout: int = 15) -> dict[str, str]:
     """

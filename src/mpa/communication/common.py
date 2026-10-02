@@ -212,6 +212,7 @@ def cli_main_loop(client: Client, *args: Any, **kwargs: Any) -> None:
             print(PLEASE_REPORT)
             sys.exit(1)
 
+
 # TODO remove this function when there will be a better way to read json from file and handle errors in a unified way
 # e.g. by using a custom click type for json file
 def read_json(file_name: Path) -> Any:

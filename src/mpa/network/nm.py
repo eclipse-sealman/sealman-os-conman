@@ -188,10 +188,10 @@ def cellular_set(client: Client, interface: int, mode: str) -> None:
 @click.option("-P", "--password", help="Password for APN.")
 @click.option("-f", "--force_pap", is_flag=True)
 @click.option("-m", "--mtu", default=0, type=int, help="MTU value for cellular connection. 0 for auto.")
-
 @interface_number_argument_decorator
-def cellular_configure(client: Client, interface: int, pin: str, apn: str, access_number: str, user: str,
-                       password: str, force_pap: bool, mtu: int) -> None:
+def cellular_configure(
+    client: Client, interface: int, pin: str, apn: str, access_number: str, user: str, password: str, force_pap: bool, mtu: int
+) -> None:
     data = {
         "apn": apn,
         "pin": pin or "",
@@ -455,7 +455,8 @@ def static_ip(client: Client, name: str, ip: str, gateway: str, mtu: str, subnet
     client.query(topics.net.set_config, data, exiting_print_message)
 
 
-@cli.command_with_client(timeout_ms=20_000,
+@cli.command_with_client(
+    timeout_ms=20_000,
     help=f"""Set dhcp on network interface.
 
     Causes given network interface to use DHCP for obtaning network
