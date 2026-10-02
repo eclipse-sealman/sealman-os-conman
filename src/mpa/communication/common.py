@@ -26,11 +26,10 @@ import ipaddress
 import sys
 import tempfile
 import uuid
-from contextlib import contextmanager
 from distutils.util import strtobool
 from functools import wraps
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterator, Mapping, MutableMapping, NoReturn, \
+from typing import Any, Callable, Dict, Mapping, MutableMapping, NoReturn, \
                    Protocol, Optional, Union, TypeVar, Tuple, List
 
 # Third party imports
@@ -159,14 +158,6 @@ unexpected_error_messages["RuntimeError"] = "Unspecified runtime error"
 unexpected_error_messages["SetSerialError"] = "Unexpected error while setting serial interface (or interfaces)"
 unexpected_error_messages["MissingTransactionStatusError"] = "Missing status from roll-backable command"
 unexpected_error_messages["CalledProcessError"] = "External command executed by management daemon failed in unpredicted way"
-
-
-@contextmanager
-def closer(to_close: Any) -> Iterator[Any]:
-    try:
-        yield to_close
-    finally:
-        to_close.close()
 
 
 def expect_empty_message(message: Optional[bytes], context: str) -> None:
