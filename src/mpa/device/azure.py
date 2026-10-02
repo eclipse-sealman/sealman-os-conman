@@ -58,6 +58,7 @@ logger = Logger(f"{sys.argv[0] if __name__ == '__main__' else __name__}")
 VAR_LIB_IOTEDGE = Path('/var/lib/iotedge')
 IOTEDGE_CONTAINER_LABEL = "net.azure-devices.edge.owner=Microsoft.Azure.Devices.Edge.Agent"
 
+
 class Azure:
     class DPS:
         X509_CERT_DIR = CONFIG_DIR_ROOT / "eg/certs/iotedge_dps_x509"

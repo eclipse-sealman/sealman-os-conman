@@ -24,11 +24,11 @@ from mpa.device.common import read_exactly
 
 
 def send_to_go_daemon(
-        socket_path: str | Path,
-        msg_type: str,
-        body: dict[str, Any] | None = None,
-        timeout: float | None = None
-    ) -> dict[str, Any] | None:
+    socket_path: str | Path,
+    msg_type: str,
+    body: dict[str, Any] | None = None,
+    timeout: float | None = None
+) -> dict[str, Any] | None:
     """Connect to GO daemon, send length-prefixed JSON request, read response."""
     request: dict[str, Any] = {"type": msg_type}
     if body is not None:
