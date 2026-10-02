@@ -15,7 +15,6 @@ from enum import Enum
 
 # GENERAL SYSTEM CODES
 SUCCESS = 0
-NO = 'n'
 
 # USER CONFIG
 ADD_USER = 'add'
