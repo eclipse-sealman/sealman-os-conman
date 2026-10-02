@@ -27,7 +27,6 @@ import sys
 import tempfile
 import uuid
 from distutils.util import strtobool
-from functools import wraps
 from pathlib import Path
 from typing import Any, Callable, Dict, Mapping, MutableMapping, NoReturn, \
                    Protocol, Optional, Union, TypeVar, Tuple, List
@@ -419,19 +418,6 @@ def print_message_exit_if_not_ok(message: Union[bytes, str]) -> None:
         sys.exit(1)
     if not print_message_ok(message):
         sys.exit(1)
-
-
-def make_query_handler(query_handler: QueryHandlerCallable) -> Callable[[Callable[[], None]], QueryHandlerCallable]:
-    def decorator(func: Callable[[], None]) -> QueryHandlerCallable:
-        @wraps(func)
-        def wrapped(message: Union[bytes, str]) -> Optional[bool]:
-            retval = query_handler(message)
-            if retval is not None:
-                return retval
-            func()
-            return None
-        return wrapped
-    return decorator
 
 
 def invalid_format(error_text: str) -> None:
