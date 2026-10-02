@@ -55,7 +55,6 @@ from mpa.communication.status_codes import (
     DEVADMIN_GID,
     HOUR,
     MONTH,
-    REMOVE_EVERYTHING,
     REMOVE_USER,
     SHOW_USERS,
     USER_GROUP,
@@ -698,7 +697,7 @@ def hostname(client: Client, name: str) -> None:
 
 
 @cli.command_with_client()
-@click.argument("what", type=click.Choice([REMOVE_EVERYTHING]))
+@click.argument("what", type=click.Choice(["everything"]))
 def erase(client: Client, what: str) -> None:
     """Remove data from persistent storage.
 
