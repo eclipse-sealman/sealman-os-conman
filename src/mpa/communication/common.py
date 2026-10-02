@@ -746,11 +746,6 @@ def file_check(file: str | Path, mode: str) -> Path:
 
 
 @argument_type_error_wrapper
-def readable_file(file: str) -> Path:
-    return file_check(file, "r")
-
-
-@argument_type_error_wrapper
 def writable_file(file: str) -> Path:
     file_path = Path(file)
     if file_path.exists():
