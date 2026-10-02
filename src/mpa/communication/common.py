@@ -172,18 +172,6 @@ def get_single_string(message: bytes, variable: str) -> str:
     return value
 
 
-def cli_init(args: Any) -> Client:
-    try:
-        return Client(args=args)
-    except Client.ConnectionInitError:
-        print(RESPONSE_FAILURE)
-        print("CLI was unable to connect with messaging system. Maybe it is down or there is")
-        print("some other unlikely issue (like serious misconfiguration or problems with")
-        print("hardware). In any case this shall be investigated, so")
-        print(PLEASE_REPORT)
-        sys.exit(1)
-
-
 def cli_main_loop(client: Client, *args: Any, **kwargs: Any) -> None:
     while True:
         try:
