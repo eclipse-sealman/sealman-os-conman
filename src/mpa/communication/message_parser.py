@@ -291,7 +291,6 @@ def _get_ip_and_mask(ip_getter: GetterFunction[IpType],
 
 
 get_ip4_and_mask = _get_ip_and_mask(get_ip4, ipaddress.IPv4Network)
-get_ip6_and_mask = _get_ip_and_mask(get_ip6, ipaddress.IPv6Network)
 get_ip46_and_mask = _get_ip_and_mask(get_ip46, _network_type_wrapper)
 
 
