@@ -17,7 +17,6 @@ Common helpers.
 # Standard imports
 from argparse import ArgumentTypeError
 import collections.abc as abc
-from time import sleep
 
 import copy
 import json
@@ -721,18 +720,6 @@ def get_current_root_partition() -> str:
                 if is_valid_uuid(part):
                     current_root_partition = part
     return current_root_partition
-
-
-def reboot_if_ok(status: Any) -> None:
-    """
-    Intended as post_respond handler of client.background() function.
-    """
-    if isinstance(status, str) and status.startswith(RESPONSE_OK):
-        logger.info("Will execute reboot in 1 second")
-        sleep(1)
-        run_command_unchecked("pkexec /usr/sbin/eg_reboot")
-    else:
-        logger.warning("Not executing reboot as status was not OK")
 
 
 # ToDo: make status type mandatory and add allow value list (enum?)
