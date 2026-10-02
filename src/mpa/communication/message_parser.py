@@ -312,5 +312,4 @@ def _get_port(transaction: Mapping[str, Any], key: str) -> str:
 
 
 # Note that port is returned as string (as you can use either port number or name)
-get_port = make_mandatory(_get_port)
 get_optional_port = make_optional_with_default(_get_port, "")
