@@ -222,7 +222,6 @@ get_ip6_with_optional_mask = _get_ip_with_optional_mask(ipaddress.IPv6Network)
 get_ip46_with_optional_mask = _get_ip_with_optional_mask(_network_type_wrapper)
 get_optional_ip4_with_optional_mask = make_optional(get_ip4_with_optional_mask)
 get_optional_ip6_with_optional_mask = make_optional(get_ip6_with_optional_mask)
-get_optional_ip46_with_optional_mask = make_optional(get_ip46_with_optional_mask)
 
 
 def _get_ip(construct_ip_from_str: Callable[[str], T]) -> GetterFunction[T]:
