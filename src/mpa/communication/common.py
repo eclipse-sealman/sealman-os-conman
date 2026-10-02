@@ -735,10 +735,3 @@ def argument_type_error_wrapper(func: Callable[..., Any]) -> Callable[..., Any]:
             raise ArgumentTypeError(e)
 
     return inner
-
-
-def file_check(file: str | Path, mode: str) -> Path:
-    with open(file, mode):
-        ...
-
-    return Path(file)
