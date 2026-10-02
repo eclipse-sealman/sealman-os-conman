@@ -15,7 +15,6 @@ Common helpers.
 """
 
 # Standard imports
-from argparse import ArgumentTypeError
 import collections.abc as abc
 
 import copy
@@ -725,13 +724,3 @@ def get_current_root_partition() -> str:
 # Also consider integrating similar code we have in mgmtd-ovpn and for serials in mgmd-device
 def get_service_status(service: str, status_type: str = "is-active") -> bool:
     return run_command_unchecked(f"systemctl {status_type} --quiet {service}.service").returncode == SUCCESS
-
-
-def argument_type_error_wrapper(func: Callable[..., Any]) -> Callable[..., Any]:
-    def inner(*args: Any, **kwargs: Any) -> Any:
-        try:
-            return func(*args, **kwargs)
-        except Exception as e:
-            raise ArgumentTypeError(e)
-
-    return inner
