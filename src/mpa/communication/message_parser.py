@@ -186,14 +186,6 @@ def get_enum_str_list(transaction: Mapping[str, Any], key: str,
     return value
 
 
-def _get_bool(transaction: Mapping[str, Any], key: str) -> bool:
-    value = transaction[key]
-    if not isinstance(value, bool):
-        # Invalid format of message is for sure error in UI code, hence RuntimeError
-        raise RuntimeError(f"Entry must be a boolean: {key}")
-    return value
-
-
 get_optional_bool = make_optional(_get_type(bool, bool, "boolean"))
 get_bool = make_mandatory(_get_type(bool, bool, "boolean"))
 get_optional_int = make_optional(_get_type(int, int, "integer"))
