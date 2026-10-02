@@ -236,7 +236,6 @@ def _get_ip(construct_ip_from_str: Callable[[str], T]) -> GetterFunction[T]:
 
 # TODO mypy cannot properly deduce types returned by get_optional_ip46...
 get_optional_ip46 = make_optional(_get_ip(ipaddress.ip_address))
-get_optional_ip4 = make_optional(_get_ip(ipaddress.IPv4Address))
 get_optional_ip6 = make_optional(_get_ip(ipaddress.IPv6Address))
 get_ip46 = make_mandatory(_get_ip(ipaddress.ip_address))
 get_ip4 = make_mandatory(_get_ip(ipaddress.IPv4Address))
