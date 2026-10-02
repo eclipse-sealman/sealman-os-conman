@@ -28,7 +28,7 @@ import tempfile
 import uuid
 from distutils.util import strtobool
 from pathlib import Path
-from typing import Any, Callable, Dict, Mapping, MutableMapping, NoReturn, \
+from typing import Any, Callable, Mapping, MutableMapping, NoReturn, \
                    Protocol, Optional, Union, TypeVar, Tuple, List
 
 # Third party imports
@@ -721,16 +721,6 @@ def get_current_root_partition() -> str:
                 if is_valid_uuid(part):
                     current_root_partition = part
     return current_root_partition
-
-
-def build_nested_dict(dot_separated_keys: str, value: T) -> Dict[str, Any]:
-    nested_dict: Union[T, Dict[str, Any]] = value
-    for key in reversed(dot_separated_keys.split('.')):
-        nested_dict = {key: nested_dict}
-    if isinstance(nested_dict, Dict):
-        return nested_dict
-    raise InvalidPayloadError(f"there were no keys for nested dict --- '{dot_separated_keys}'"
-                              "should be dot separated list of keys")
 
 
 def reboot_if_ok(status: Any) -> None:
