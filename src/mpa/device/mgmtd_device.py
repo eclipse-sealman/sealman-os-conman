@@ -37,7 +37,6 @@ from mpa.common.common import RESPONSE_FAILURE, RESPONSE_OK
 from mpa.common.common import empty_message_wrapper
 from mpa.communication import client as com_client
 from mpa.communication.client import background
-from mpa.communication.client import convert_exception_to_message_failure_status
 from mpa.communication.client import guarded
 from mpa.communication.client import sync
 from mpa.communication.client import RESPONSE_SUFFIX
@@ -63,7 +62,6 @@ from mpa.communication.status_codes import ADD_USER, REMOVE_USER, SHOW_USERS, \
 from mpa.communication.process import run_command
 from mpa.communication.process import run_command_unchecked
 from mpa.common.logger import Logger
-from mpa.common.killer_thread import KillerThread
 from mpa.communication.trivial_go_daemon_client import send_to_go_daemon
 from mpa.config.common import CONFIG_FORMAT_VERSION
 from mpa.device.azure import Azure
@@ -1008,35 +1006,31 @@ def grant_docker_volumes_access_to_admins(message: bytes) -> None:
     run_command("pkexec setfacl -Rdm u:admin:rwx /data/docker/volumes")  # set access for new files
 
 
-def set_config_step_init(message: bytes, from_part: bytes, message_id: bytes) -> com_client.Async:
-    def background_task(message: bytes, from_part: bytes, message_id: bytes) -> None:
-        with DEVICE_SET_CONFIG_LOCK.transaction("Global lock for loading device seetings from file"):
-            config = json.loads(message)
-            meta_options = get_optional_dict(config, 'meta_options')
-            if meta_options is None:
-                meta_options = {}
-            logger.debug(f"meta_options: {meta_options}")
-            setconfig = SetConfig(_client, logger)
-            setconfig.prepare_backup_config()
-            continue_despite_errors = meta_options.pop("continue_despite_errors", False)
-            ignored_keys = setconfig.set_config_file(config, continue_despite_errors=continue_despite_errors)
-            setconfig.execute_and_wait()
-            if get_optional_bool(meta_options, "ask_for_affirmation"):
-                warn_about_ignored_keys = True if len(ignored_keys) else False
-                setconfig.confirm_config(from_part, message_id, warn_about_ignored_keys=warn_about_ignored_keys).wait()
-            else:
-                if len(setconfig.errors):
-                    setconfig.rollback_config()
-                    error = TransactionRolledBackError("New configuration was rolled back due to errors")
-                    error_response = convert_exception_to_message_failure_status(error)
-                    _client.respond(f"dev.set_config{RESPONSE_SUFFIX}", error_response, from_part, message_id)
-                else:
-                    setconfig.remove_backup()
-                    _client.respond(f"dev.set_config{RESPONSE_SUFFIX}",
-                                    f"{RESPONSE_OK}: New configuration applied.", from_part, message_id)
-    background_thread = KillerThread(target=background_task, args=(message, from_part, message_id))
-    background_thread.start()
-    return com_client.Async()
+def set_config(message: bytes, from_part: bytes, message_id: bytes) -> Union[str, com_client.Async]:
+    with DEVICE_SET_CONFIG_LOCK.transaction("Global lock for loading device settings from file"):
+        config = json.loads(message)
+        meta_options = get_optional_dict(config, 'meta_options')
+        if meta_options is None:
+            meta_options = {}
+        logger.debug(f"meta_options: {meta_options}")
+        continue_despite_errors = meta_options.pop("continue_despite_errors", False)
+        ask_for_affirmation = get_optional_bool(meta_options, "ask_for_affirmation")
+        setconfig = SetConfig(_client, logger)
+        ignored_keys = setconfig.set_config_file(config, continue_despite_errors=continue_despite_errors)
+        setconfig.prepare_backup_config()  # We do it as late as possible, so parsing rejections don't trigger rollback
+        # TODO any exception from here till remove_backup exits will leave backup on disk
+        # This mostly means messaging related (like killed forwarder) or other unforseen issues
+        # We need a way to deal with pending rollback in a better way than we currently do...
+        setconfig.execute_and_wait()
+        if ask_for_affirmation:
+            warn_about_ignored_keys = True if len(ignored_keys) else False
+            setconfig.confirm_config(from_part, message_id, warn_about_ignored_keys=warn_about_ignored_keys).wait()
+            return com_client.Async()  # response sending was delegated to setconfig in line above!
+        if len(setconfig.errors):
+            setconfig.rollback_config()
+            raise TransactionRolledBackError("New configuration was rolled back due to errors")
+        setconfig.remove_backup()
+        return f"{RESPONSE_OK}: New configuration applied."
 
 
 _parser = argparse.ArgumentParser(prog='Device config daemon')
@@ -1047,7 +1041,7 @@ _client = com_client.Client(args=_args)
 
 def main() -> None:
     def in_bg(topic: str, fun: com_client.SyncHandlerCallable, post_respond: Optional[Callable[[Any], None]] = None) -> None:
-        messages[topic] = background(fun, com_client.respond_to(_client, topic), post_respond=post_respond)
+        messages[topic] = background(sync(fun), com_client.respond_to(_client, topic), post_respond=post_respond)
 
     os_info = OsInfo.from_str(read_text_or_empty(os_release_file))
     hardware_version = read_text_or_empty(hardware_version_file)
@@ -1090,7 +1084,7 @@ def main() -> None:
     messages[topics.dev.get_config] = guarded(get_config_step_init(with_privates=False))
     messages[topics.dev.reboot] = guarded(sync(reboot_device))
     messages[topics.dev.get_config_with_privates] = guarded(get_config_step_init(with_privates=True))
-    messages[topics.dev.set_config] = guarded(set_config_step_init)
+    messages[topics.dev.set_config] = background(guarded(set_config), com_client.respond_to(_client, topics.dev.set_config))
     messages[topics.dev.serial.set_config] = guarded(sync(set_serial))
     messages[topics.dev.serial.get_config] = guarded(sync(get_serial))
     messages[topics.dev.manage_user] = guarded(sync(manage_user))

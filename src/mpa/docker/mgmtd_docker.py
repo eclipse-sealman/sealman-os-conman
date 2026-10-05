@@ -277,7 +277,7 @@ def docker_set_config(query_message: bytes, from_part: bytes, query_message_id: 
 
 def main() -> None:
     def in_bg(topic: str, fun: com_client.SyncHandlerCallable, post_respond: Optional[Callable[[Any], None]] = None) -> None:
-        messages[topic] = background(fun, com_client.respond_to(_client, topic), post_respond=post_respond)
+        messages[topic] = background(sync(fun), com_client.respond_to(_client, topic), post_respond=post_respond)
 
     messages = {}
     in_bg(topics.docker.restart, guarded(docker_restart))

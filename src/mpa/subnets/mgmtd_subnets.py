@@ -220,7 +220,7 @@ def main() -> None:
     _client = com_client.Client(args=_args)
 
     def in_bg(topic: str, fun: com_client.SyncHandlerCallable, post_respond: Optional[Callable[[Any], None]] = None) -> None:
-        messages[topic] = background(fun, com_client.respond_to(_client, topic), post_respond=post_respond)
+        messages[topic] = background(sync(fun), com_client.respond_to(_client, topic), post_respond=post_respond)
 
     messages: Dict[str, Any] = {}
     in_bg(topics.net.vlan.get_config, guarded(get_config))

@@ -919,7 +919,7 @@ def dhcp_server_set_config(message: bytes) -> None:
 
 def main() -> None:
     def in_bg(topic: str, fun: com_client.SyncHandlerCallable, post_respond: Optional[Callable[[Any], None]] = None) -> None:
-        messages[topic] = background(fun, com_client.respond_to(_client, topic), post_respond=post_respond)
+        messages[topic] = background(sync(fun), com_client.respond_to(_client, topic), post_respond=post_respond)
 
     messages = {}
     in_bg(topics.net.set_config, guarded(net_set_config))

@@ -150,12 +150,17 @@ def sync(function: SyncHandlerCallable) -> RespondingHandlerCallable:
     return with_async_params_ignored
 
 
-def background(function: SyncHandlerCallable, respond: Callable[[Any, bytes, bytes], None], *,
+def background(function: RespondingHandlerCallable, respond: Callable[[Any, bytes, bytes], None], *,
                post_respond: Optional[Callable[[Any], None]] = None) -> RespondingHandlerCallable:
     '''
-    Converts SyncHandlerCallable to RespondingHandlerCallable which runs in
-    background thread. After thread finishes it sends back its return value or
-    exception using respond callable (which takes as arguments message to be
+    Runs RespondingHandlerCallable in background thread. If wrapped function
+    throws KillerThread will act, so use guarded()!
+
+    Async retval means that wrapped function guarntees that response has been
+    (or will be) sent by itself, so respond and post_respond are ignored.
+
+    For sync retval, after thread finishes wrapper sends back function return
+    value using respond callable (which takes as arguments message to be
     sent back, public id of requestor and query id. Use respond_to function to
     bind your client and response topic into callable which can be given
     as respond argument. Use post_respond if you want to perform additional
@@ -164,7 +169,9 @@ def background(function: SyncHandlerCallable, respond: Callable[[Any, bytes, byt
     the response type.'''
 
     def background_part(message: bytes, from_part: bytes, message_id: bytes) -> None:
-        retval = function(message)
+        retval = function(message, from_part, message_id)
+        if isinstance(retval, Async):
+            return
         respond(retval, from_part, message_id)
         if post_respond is not None:
             try:
