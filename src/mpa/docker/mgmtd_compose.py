@@ -270,7 +270,7 @@ def docker_compose_proxy_del(message: bytes) -> None:
 
 def main() -> None:
     def in_bg(topic: str, fun: com_client.SyncHandlerCallable, post_respond: Optional[Callable[[Any], None]] = None) -> None:
-        messages[topic] = background(fun, com_client.respond_to(_client, topic), post_respond=post_respond)
+        messages[topic] = background(sync(fun), com_client.respond_to(_client, topic), post_respond=post_respond)
 
     messages = {}
     messages[topics.docker.compose.get_config] = guarded(sync(docker_compose_get_config))

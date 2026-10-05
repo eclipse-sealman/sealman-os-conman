@@ -27,7 +27,7 @@ import mpa.swupdate.swupdate as swupdate
 from mpa.common.common import RESPONSE_OK
 from mpa.common.logger import Logger
 from mpa.communication import client as com_client
-from mpa.communication.client import background, guarded
+from mpa.communication.client import background, guarded, sync
 from mpa.communication.message_parser import get_file
 from mpa.communication.common import SWUpdateError
 from mpa.device.common import reboot_device
@@ -142,7 +142,7 @@ def main() -> None:
     messages: Dict[str, Any] = {}
 
     def in_bg(topic: str, fun: com_client.SyncHandlerCallable, post_respond: Optional[Callable[[Any], None]] = None) -> None:
-        messages[topic] = background(fun, com_client.respond_to(_client, topic), post_respond=post_respond)
+        messages[topic] = background(sync(fun), com_client.respond_to(_client, topic), post_respond=post_respond)
     in_bg(topics.dev.swupdate, guarded(perform_update))
     _client.register_responders(messages)
 

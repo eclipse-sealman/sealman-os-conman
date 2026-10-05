@@ -162,6 +162,7 @@ class SetConfig:
     # 2. smartems.py receives error response and calls rollback_config
     # 3. rollback_config now needs to deal with daemon which crashed or is hanged --- open question is if backup file
     #    will be removed (it shall not, as crashed/hanged daemon cannot apply it)
+    # TODO rollback_config and confirm_config look similar on first glance, yet only the latter responds...
     def rollback_config(self) -> None:
         # This artificial error will allow to see which errors were before and which after rollback
         self.errors.append("Rolling back changes!!!")
