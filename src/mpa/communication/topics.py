@@ -30,7 +30,6 @@ class azure:
 class dev:
     get_config = "dev.get_config"
     get_config_with_privates = "dev.get_config_with_privates"
-    set_config = "dev.set_config"
     manage_user = "dev.manage_user"
     get_serial_number = "dev.get_serial_number"
     perform_factory_reset = "dev.perform_factory_reset"
@@ -38,6 +37,13 @@ class dev:
     docker_volumes_access = "dev.docker_volumes_access"
     swupdate = "dev.swupdate"
     reboot = "dev.reboot"
+
+    class _SetConfigTopic(str):
+        class pending_rollback:
+            apply = "dev.set_config.pending_rollback.apply"
+            discard = "dev.set_config.pending_rollback.discard"
+
+    set_config = _SetConfigTopic("dev.set_config")
 
     class tpm:
         get_config = "dev.tpm.get_config"

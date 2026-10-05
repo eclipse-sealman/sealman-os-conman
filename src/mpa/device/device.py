@@ -590,6 +590,33 @@ def set_config(client: Client, filename: Path, unconditionally: bool, use_meta_o
     )
 
 
+@cli.group(hidden=True)
+def pending_rollback() -> None:
+    """Manages rollback data prepared by set-config and not removed automatically.
+
+    Most of the time rollback data will be managed automatically, but on rare
+    occasions end user may need to deal with it manually.
+    """
+
+
+def query_pending_rollback(client: Client, topic: str) -> None:
+    # Handle partial information from daemons
+    client.register_trivial_handler(f"{topics.dev.set_config}.rt", print_message_as_utf8)
+    client.query(topic, handler=lambda message: set_config_response_handler(client, message))
+
+
+@pending_rollback.command_with_client("apply", timeout_ms=120_000)
+def pending_rollback_apply(client: Client) -> None:
+    """Restore configuration from before failed set-config immediately."""
+    query_pending_rollback(client, topics.dev.set_config.pending_rollback.apply)
+
+
+@pending_rollback.command_with_client("discard")
+def pending_rollback_discard(client: Client) -> None:
+    """Remove rollback data to prevent its automatic application after restart."""
+    query_pending_rollback(client, topics.dev.set_config.pending_rollback.discard)
+
+
 # TODO device show shall use terse output for firewall (same as fw show)
 @cli.command_with_client()
 @click.option("--export-private-keys", is_flag=True, help="Governs export of private keys and user password hashes.")

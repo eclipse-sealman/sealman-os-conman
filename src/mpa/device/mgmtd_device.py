@@ -42,7 +42,7 @@ from mpa.communication.client import sync
 from mpa.communication.client import RESPONSE_SUFFIX
 from mpa.communication.common import InvalidPreconditionError, InvalidParameterError, InvalidPayloadError, SetSerialError
 from mpa.communication.common import SSHKeyManagementError
-from mpa.communication.common import TransactionRolledBackError
+from mpa.communication.common import MissingRollbackDataError, PendingRollbackError, TransactionRolledBackError
 from mpa.communication.common import expect_empty_message
 from mpa.communication.common import read_text_or_empty
 from mpa.communication.message_parser import get_bool, \
@@ -86,7 +86,7 @@ from mpa.device.common import SYSCTL_CONF
 from mpa.device.common import SYSCTL_SYSRQ_REBOOT_VALUE
 from mpa.device.common import SYSCTL_SYSRQ_IGNORE_VALUE
 from mpa.device.common import ConfctlParser
-from mpa.device.device_config import SetConfig, check_if_backup_config_exists
+from mpa.device.device_config import SetConfig, check_if_backup_config_exists, load_backup_config, pending_rollback_error
 from mpa.device.os_info import OsInfo
 from mpa.smartems.client import DefaultSmartEmsClient
 from mpa.smartems.common import DeviceContext
@@ -1018,19 +1018,45 @@ def set_config(message: bytes, from_part: bytes, message_id: bytes) -> Union[str
         setconfig = SetConfig(_client, logger)
         ignored_keys = setconfig.set_config_file(config, continue_despite_errors=continue_despite_errors)
         setconfig.prepare_backup_config()  # We do it as late as possible, so parsing rejections don't trigger rollback
-        # TODO any exception from here till remove_backup exits will leave backup on disk
-        # This mostly means messaging related (like killed forwarder) or other unforseen issues
-        # We need a way to deal with pending rollback in a better way than we currently do...
-        setconfig.execute_and_wait()
-        if ask_for_affirmation:
-            warn_about_ignored_keys = True if len(ignored_keys) else False
-            setconfig.confirm_config(from_part, message_id, warn_about_ignored_keys=warn_about_ignored_keys).wait()
-            return com_client.Async()  # response sending was delegated to setconfig in line above!
-        if len(setconfig.errors):
-            setconfig.rollback_config()
+        try:
+            # Any exception from here till remove_backup exits will leave backup on disk
+            # This mostly means messaging related (like killed forwarder) or other unforseen issues
+            # Thats why we convert those exception to PendingRollbackError --- user will get info
+            # and even if he ignores it we will try to recover automatically on restart or next set-config
+            setconfig.execute_and_wait()
+            if ask_for_affirmation:
+                warn_about_ignored_keys = True if len(ignored_keys) else False
+                setconfig.confirm_config(from_part, message_id, warn_about_ignored_keys=warn_about_ignored_keys).wait()
+                return com_client.Async()  # response sending was delegated to setconfig in line above!
+            rolled_back = len(setconfig.errors) > 0
+            if rolled_back:
+                setconfig.rollback_config()
+            else:
+                setconfig.remove_backup()
+        except (PendingRollbackError, MissingRollbackDataError):
+            raise  # failed rollback already tells what happened to rollback data
+        except Exception as exc:
+            raise pending_rollback_error("Applying configuration", exc) from exc
+        if rolled_back:
             raise TransactionRolledBackError("New configuration was rolled back due to errors")
-        setconfig.remove_backup()
         return f"{RESPONSE_OK}: New configuration applied."
+
+
+def resolve_pending_rollback(message: bytes, *, discard: bool) -> str:
+    expect_empty_message(message, "resolve_pending_rollback()")
+    with DEVICE_SET_CONFIG_LOCK.transaction("Global lock for handling pending rollback of device settings"):
+        if load_backup_config() is None:
+            raise InvalidPreconditionError("There is no pending rollback of device configuration")
+        setconfig = SetConfig(_client, logger)
+        if discard:
+            setconfig.remove_backup()
+            logger.info("Pending rollback discarded on request")
+            return f"{RESPONSE_OK}: Pending rollback discarded, current configuration kept."
+        setconfig.rollback_config()
+    # First error is artificial marker added by rollback_config()
+    if len(setconfig.errors) > 1:
+        raise RuntimeError("Previous configuration was restored with errors")
+    return f"{RESPONSE_OK}: Previous configuration restored."
 
 
 _parser = argparse.ArgumentParser(prog='Device config daemon')
@@ -1085,6 +1111,10 @@ def main() -> None:
     messages[topics.dev.reboot] = guarded(sync(reboot_device))
     messages[topics.dev.get_config_with_privates] = guarded(get_config_step_init(with_privates=True))
     messages[topics.dev.set_config] = background(guarded(set_config), com_client.respond_to(_client, topics.dev.set_config))
+    in_bg(topics.dev.set_config.pending_rollback.apply, guarded(
+        lambda message: resolve_pending_rollback(message, discard=False)))
+    messages[topics.dev.set_config.pending_rollback.discard] = guarded(sync(
+        lambda message: resolve_pending_rollback(message, discard=True)))
     messages[topics.dev.serial.set_config] = guarded(sync(set_serial))
     messages[topics.dev.serial.get_config] = guarded(sync(get_serial))
     messages[topics.dev.manage_user] = guarded(sync(manage_user))
