@@ -81,6 +81,14 @@ class TransactionRolledBackError(RuntimeError):
     pass
 
 
+class PendingRollbackError(RuntimeError):
+    pass
+
+
+class MissingRollbackDataError(RuntimeError):
+    pass
+
+
 class InvalidPayloadError(RuntimeError):
     pass
 
@@ -153,6 +161,9 @@ unexpected_error_messages = {}
 unexpected_error_messages["RuntimeError"] = "Unspecified runtime error"
 unexpected_error_messages["SetSerialError"] = "Unexpected error while setting serial interface (or interfaces)"
 unexpected_error_messages["MissingTransactionStatusError"] = "Missing status from roll-backable command"
+unexpected_error_messages["PendingRollbackError"] = """Unfinished transaction left rollback data.
+Configuration may be partially applied."""
+unexpected_error_messages["MissingRollbackDataError"] = "Rollback data is missing or unusable, configuration was not rolled back"
 unexpected_error_messages["CalledProcessError"] = "External command executed by management daemon failed in unpredicted way"
 
 

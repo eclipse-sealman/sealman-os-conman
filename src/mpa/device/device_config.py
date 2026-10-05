@@ -25,8 +25,10 @@ from mpa.common.logger import Logger
 from mpa.common.killer_thread import KillerThread
 from mpa.communication.client import Client  # import to get Client as type for mypy
 from mpa.communication.common import InvalidPayloadError
+from mpa.communication.common import MissingRollbackDataError
+from mpa.communication.common import PendingRollbackError
 from mpa.communication.daemon_transaction import DaemonTransaction
-from mpa.communication.message_parser import get_optional_bool
+from mpa.communication.message_parser import get_optional_bool, get_str
 from mpa.config.common import CONFIG_DIR_ROOT, CONFIG_FORMAT_VERSION_TO_ASSUME_FOR_UNVERSIONED_CONFIG
 from mpa.device.common import DEVICE_SET_CONFIG_LOCK
 from typing import Any, Dict, List, Mapping, Optional, Union
@@ -60,6 +62,34 @@ set_config_handlers = {
     "webgui": topics.webgui.set_config,
     "vlans": topics.net.vlan.set_config,
 }
+
+
+def load_backup_config() -> Optional[Dict[str, Any]]:
+    """
+    Returns previously prepared backup config from disk or None if there is no usable one.
+    Unusable backup is removed, as it cannot be applied anyway.
+    """
+    content = ""
+    try:
+        content = DEVICE_BACKUP_CONFIG.read_text()
+        backup_config: Dict[str, Any] = json.loads(content)
+        get_str(backup_config, "config_format_version")
+    except Exception:
+        logger.info(f"device backup config is not present or invalid we will try to remove it, read content was: {content}")
+        DEVICE_BACKUP_CONFIG.unlink(missing_ok=True)
+        return None
+    return backup_config
+
+
+def pending_rollback_error(failed_action: str, exc: Exception) -> PendingRollbackError:
+    return PendingRollbackError(
+        f"{failed_action} failed with {exc!r}. Configuration may be partially applied. "
+        "Previous configuration is saved on disk as pending rollback. "
+        "It will be applied on next device configuration service restart. "
+        "If next set-config happens before restart, pending rollback data will be used "
+        "instead of creating new rollback data. "
+        "You may call `device pending-rollback apply` or `device pending-rollback discard` "
+        "to manage pending rollback manually instead of waiting those automatic actions.")
 
 
 class SetConfig:
@@ -138,10 +168,18 @@ class SetConfig:
         return self.__results
 
     def prepare_backup_config(self) -> None:
+        if load_backup_config() is not None:
+            message = "Using pending rollback left by previous failed attempt as backup"
+            self.__logger.info(message)
+            self.__client.send("dev.set_config.rt", message)
+            return
         event = threading.Event()
         callback_with_event = functools.partial(self.__save_config, event)
         self.__client.query(topics.dev.get_config, "", callback_with_event)
         event.wait()
+        # TODO we can raise here on missing rollback data, but we would need meta
+        # option to not raise in case of persistent issue with get_config...
+        # Do we want it?
 
     def __add(self, topic: str, target: str, message: Dict[str, Any]) -> None:
         event = threading.Event()
@@ -157,27 +195,30 @@ class SetConfig:
             self.__configs[target]["event_object"].wait()
         self.__configs.clear()
 
-    # TODO Check following scenario:
-    # 1. Apply new config (via smartems) which will trigger crash or hang of one of mgmtd daemons after partial config application
-    # 2. smartems.py receives error response and calls rollback_config
-    # 3. rollback_config now needs to deal with daemon which crashed or is hanged --- open question is if backup file
-    #    will be removed (it shall not, as crashed/hanged daemon cannot apply it)
-    # TODO rollback_config and confirm_config look similar on first glance, yet only the latter responds...
+    # TODO In following scenario:
+    # 1. New config application triggers crash or hang of one of mgmtd daemons after partial config application
+    # 2. rollback_config now needs to deal with daemon which crashed or is hanged --- that will result in error from
+    #    forwarder but we will still treat rollback as finished and backup file will be removed (and it shall not, as
+    #    crashed/hanged daemon cannot apply it)
+    # Do we want to leave in pending rollback sections with unknown status or we want to keep whole file maybe???
     def rollback_config(self) -> None:
         # This artificial error will allow to see which errors were before and which after rollback
         self.errors.append("Rolling back changes!!!")
         self.__client.send("dev.set_config.rt", "Rolling back changes!!!")
+        backup_config = load_backup_config()
+        if backup_config is None:
+            message = ("Failed to perform requested rollback due to invalid or missing data. Verify or reapply set-config.")
+            self.__client.send("dev.set_config.rt", message)
+            raise MissingRollbackDataError(message)  # TODO do we want both .rt and error? Maybe error is enough?
         try:
-            content = DEVICE_BACKUP_CONFIG.read_text()
-            backup_config = json.loads(content)
             self.set_config_file(backup_config, continue_despite_errors=True)
             self.execute_and_wait()
-            self.__rolled_back = True
-        except json.JSONDecodeError:
-            logger.error(f"device backup config contains invalid json: '{content}'")
-            self.__client.send(f"device backup config contains invalid json and could not be applied: '{content}'")
-        finally:
-            self.remove_backup()
+        except Exception as exc:
+            # in relation to TODO above --- this exception is not normal forwarder error, but some strange issue in
+            # messaging, so we kee rollback only in extreme case, but in more common case we remove the backup below...
+            raise pending_rollback_error("Rolling back configuration", exc) from exc
+        self.__rolled_back = True
+        self.remove_backup()
 
     def __final_handler(self, event: threading.Event, rollback: bool) -> None:
         try:
@@ -289,17 +330,13 @@ def check_if_backup_config_exists(client: Client) -> None:
 
         def background_task() -> None:
             with DEVICE_SET_CONFIG_LOCK.transaction("Global lock to restore backup device config"):
-                try:
-                    content = DEVICE_BACKUP_CONFIG.read_text()
-                    backup_config = json.loads(content)
-                    setconfig = SetConfig(client, logger)
-                    # We have lock, so we can remove backup immediately,
-                    # so if we hang we will not try to apply same backup file again
-                    setconfig.remove_backup()
-                except json.JSONDecodeError:
-                    logger.error(f"device backup config contains invalid json: '{content}'")
+                backup_config = load_backup_config()
+                if backup_config is None:
                     return
-
+                setconfig = SetConfig(client, logger)
+                # We have lock, so we can remove backup immediately,
+                # so if we hang we will not try to apply same backup file again
+                setconfig.remove_backup()
                 setconfig.set_config_file(backup_config, continue_despite_errors=True)
                 setconfig.execute_and_wait()
 
