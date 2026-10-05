@@ -107,7 +107,7 @@ class AffirmablePresetActionsBase:
                 logger.error("Missing STATE_CHANGE in rollback_to_disable")
 
     def broken_transaction_detected(self) -> bool:
-        if self.daemon_transaction.active:
+        if self.daemon_transaction.state != DaemonTransaction.State.IDLE:
             return False
         if self.preset_class.PREVIOUS.exists():
             return True

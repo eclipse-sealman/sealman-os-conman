@@ -34,8 +34,8 @@ CLI    receive:            affirm.do_something_dangeours.req
                            it, but this time all is ok, so users confirms)
        send:               affirm.do_something_dangerous.resp
 DAEMON receive:            affirm.do_something_dangerous.resp
-       send (by dt):       do_something_dangerous.resp (contents set earlier by set_response call, so "dangerous thing succeeded")
        exec (by dt):       function_to_call_at_the_end_of_transaction(rollback=False)
+       send (by dt):       do_something_dangerous.resp (contents set earlier by set_response call, so "dangerous thing succeeded")
 
 
 Example scenarios where things fail (from ending to beginnig):
@@ -52,10 +52,11 @@ DAEMON exec (by dt):       function_to_call_at_the_end_of_transaction(rollback=T
 from __future__ import annotations
 
 # Standard imports
+import enum
 import json
 import sys
 
-from threading import Timer
+from threading import Lock, Thread, Timer
 from typing import Any, Callable, Optional, Protocol, Union
 
 # Local imports
@@ -77,10 +78,14 @@ class FinalAction(Protocol):
 
 
 class DaemonTransaction:
+    class State(enum.Enum):
+        IDLE = enum.auto()
+        ACTIVE = enum.auto()
+        CLOSING = enum.auto()
+
     def __init__(self, rollback_error_message: str, client: Client) -> None:
-        # self.active is used for primitive GIL based multi-thread safety ---
-        # good enough for now, but we may consider real lock in the future
-        self.active: bool = False
+        self.state: DaemonTransaction.State = DaemonTransaction.State.IDLE
+        self.state_change_lock = Lock()
         self.last_transaction_rolled_back = False
         self.rollback_error_message = rollback_error_message
         self.client = client
@@ -92,29 +97,51 @@ class DaemonTransaction:
         self.timer: Optional[Timer] = None
 
     def __cleanup(self) -> None:
-        self.active = False
-        self.topic = None
-        self.final_action = None
-        self.from_part = None
-        self.message_id = None
-        self.response = None
-        self.timer = None
+        with self.state_change_lock:
+            self.topic = None
+            self.final_action = None
+            self.from_part = None
+            self.message_id = None
+            self.response = None
+            self.timer = None
+            self.state = DaemonTransaction.State.IDLE
 
-    def __rollback(self) -> None:
-        if not self.active:
-            return
+    def __start_closing(self) -> bool:
+        with self.state_change_lock:
+            if self.state == DaemonTransaction.State.ACTIVE:
+                self.state = DaemonTransaction.State.CLOSING
+                if self.timer is not None:
+                    self.timer.cancel()
+                return True
+            return False
+
+    def __close(self, *, rollback: bool) -> None:
         try:
+            assert self.state is DaemonTransaction.State.CLOSING
             assert self.final_action is not None
-            self.last_transaction_rolled_back = True
-            self.final_action(rollback=True)
             assert self.from_part is not None
             assert self.message_id is not None
-            error = TransactionRolledBackError(self.rollback_error_message)
-            self.response = convert_exception_to_message_failure_status(error)
+            if rollback:
+                self.last_transaction_rolled_back = True
+            try:
+                self.final_action(rollback=rollback)
+                if rollback:
+                    error = TransactionRolledBackError(self.rollback_error_message)
+                    self.response = convert_exception_to_message_failure_status(error)
+            except Exception as exc:  # pylint: disable=broad-except
+                logger.exception(exc)
+                self.response = convert_exception_to_message_failure_status(exc)
             self.client.respond(f"{self.topic}{RESPONSE_SUFFIX}", self.response, self.from_part, self.message_id)
         except Exception as exc:  # pylint: disable=broad-except
+            # __close is called in normal thread (not KillerThread) by timer via __rollbacker and by affirm handler,
+            # so we just log and eat all unexpected exceptions (hoping __cleanup below will never throw :)
             logger.exception(exc)
-        self.__cleanup()
+        finally:
+            self.__cleanup()
+
+    def __rollback(self) -> None:
+        if self.__start_closing():
+            self.__close(rollback=True)
 
     def __rollbacker(self) -> Callable[[], None]:
         def call_rollback() -> None:
@@ -129,32 +156,25 @@ class DaemonTransaction:
     def __handle_affirm_response(self, message: Union[str, bytes]) -> Optional[bool]:
         if isinstance(message, str):
             logger.warning("Affirm response probably lost --- will not wait for it")
-            # Something wrong with communication, let's just proceed with
-            # rollback on timeout...
+            # Something wrong with communication --- let the timeout do the rollback...
             return False
-        if not self.active:
+        try:
+            affirmed: bool = json.loads(message)
+        except Exception as exc:  # pylint: disable=broad-except
+            # Unparsable message, same as above with wrong communication --- let the timeout do the rollback
+            logger.exception(exc)
+            return None
+        if not affirmed:
+            Thread(target=self.__rollback).start()  # potentially long rollback cannot be done directly in handler
+        elif self.__start_closing():
+            self.__close(rollback=False)
+        else:
             # TODO do we want to keep from_part and message_id in this function
             # and respond even if transaction was finished earlier???
             # self.client.respond(f"{self.topic}{RESPONSE_SUFFIX}",
             #                     f"{RESPONSE_FAILURE} Transaction was already finished when affirm response was received",
             #                     from_part, message_id)
             logger.warning("Received affirm response in inactive transaction")
-            return None
-        try:
-            affirmed: bool = json.loads(message)
-            assert self.from_part is not None
-            assert self.message_id is not None
-            assert self.timer is not None
-            assert self.final_action is not None
-            self.timer.cancel()
-            if affirmed:
-                self.client.respond(f"{self.topic}{RESPONSE_SUFFIX}", self.response, self.from_part, self.message_id)
-                self.final_action(rollback=False)
-                self.__cleanup()
-            else:
-                self.__rollback()
-        except Exception as exc:  # pylint: disable=broad-except
-            logger.exception(exc)
         return None
 
     def start(self,
@@ -162,38 +182,42 @@ class DaemonTransaction:
               final_action: FinalAction,
               from_part: bytes,
               message_id: bytes) -> None:
-        if self.active:
-            raise ConflictingOperationInProgessError(f"Another transaction is already started for {self.topic}. "
-                                                     "Execute explicit commit request to accept current state of device.")
-        self.active = True
-        self.last_transaction_rolled_back = False
-        self.topic = topic
-        self.final_action = final_action
-        self.from_part = from_part
-        self.message_id = message_id
-        error = MissingTransactionStatusError(f"Handler for {topic} finished unexpectedly")
-        self.response = convert_exception_to_message_failure_status(error)
-        self.timer = Timer(30.0, self.__rollbacker())
-        self.timer.start()
+        with self.state_change_lock:
+            if self.state is not DaemonTransaction.State.IDLE:
+                raise ConflictingOperationInProgessError(f"Another transaction is already started for {self.topic}. "
+                                                         "Execute explicit commit request to accept current state of device.")
+            self.state = DaemonTransaction.State.ACTIVE
+            self.last_transaction_rolled_back = False
+            self.topic = topic
+            self.final_action = final_action
+            self.from_part = from_part
+            self.message_id = message_id
+            error = MissingTransactionStatusError(f"Handler for {topic} finished unexpectedly")
+            self.response = convert_exception_to_message_failure_status(error)
+            self.timer = Timer(30.0, self.__rollbacker())
+            self.timer.start()
 
     def set_final_action(self, final_action: FinalAction) -> None:
-        if not self.active:
-            raise RuntimeError("Impossible to set rollback action for inactive transaction")
-        self.final_action = final_action
+        with self.state_change_lock:
+            if self.state is DaemonTransaction.State.ACTIVE:
+                self.final_action = final_action
+                return
+        raise RuntimeError("Impossible to set rollback action for inactive transaction")
 
     def set_response(self, response: Any, *, question: Optional[str] = None) -> None:
-        if not self.active:
-            raise RuntimeError("Unable to set response in inactive transaction")
+        with self.state_change_lock:
+            if self.state is DaemonTransaction.State.ACTIVE:
+                self.response = response
+            else:
+                raise RuntimeError("Unable to set response in inactive transaction")
         self.client.query(f"affirm.{self.topic}", question, handler=self.__affirm_response_handler())
-        self.response = response
 
     def commit(self) -> bool:
-        if not self.active:
+        if not self.__start_closing():
             return False
-        timer = self.timer
-        if self.final_action is not None:
-            self.final_action(rollback=False)
-        self.__cleanup()
-        if timer is not None:
-            timer.cancel()
+        try:
+            if self.final_action is not None:
+                self.final_action(rollback=False)
+        finally:
+            self.__cleanup()
         return True

@@ -75,7 +75,7 @@ class SetConfig:
         self.__statuses: Dict[str, Union[bool, None]] = dict()
         self.errors: List[str] = list()
         self.__configs: Dict[str, Dict[str, Any]] = {}
-        self.__deamon_transaction = DaemonTransaction("", self.__client)
+        self.__deamon_transaction = DaemonTransaction("Failed to receive user affirmation after device set_config", self.__client)
         self.__logger.debug("Created SetConfig instance")
 
     def __add_error_message(self, target: str, message: str) -> None:
@@ -180,12 +180,13 @@ class SetConfig:
             self.remove_backup()
 
     def __final_handler(self, event: threading.Event, rollback: bool) -> None:
-        if rollback:
-            background_thread = KillerThread(target=self.rollback_config)
-            background_thread.start()
-        else:
-            self.remove_backup()
-        event.set()
+        try:
+            if rollback:
+                self.rollback_config()
+            else:
+                self.remove_backup()
+        finally:
+            event.set()
 
     def remove_backup(self) -> None:
         DEVICE_BACKUP_CONFIG.unlink(missing_ok=True)
@@ -195,22 +196,28 @@ class SetConfig:
         final_handler = functools.partial(self.__final_handler, event)
 
         self.__deamon_transaction.start("dev.set_config", final_handler, from_part, message_id)
-        # We are cheating a bit --- everything was already done before we started transaction, so we can immediately set
-        # response
-        if len(self.errors) == 0 and not warn_about_ignored_keys:
-            question = None
-            error_state = "without errors"
-        else:
-            if len(self.errors):
-                question = ("There were some errors detected"
-                            f"{' and ignored section of config' if warn_about_ignored_keys else ''}. "
-                            "Do you want to keep this potentially invalid new config?")
-                error_state = "despite errors"
+        try:
+            # We are cheating a bit --- everything was already done before we started transaction, so we can immediately
+            # set response
+            if len(self.errors) == 0 and not warn_about_ignored_keys:
+                question = None
+                error_state = "without errors"
             else:
-                question = "There were ignored sections of config. Do you want to keep this potentially partial config?"
-                error_state = "despite ignored sections"
-        response = f"{RESPONSE_OK} Confirmation received. New configuration has been applied {error_state}."
-        self.__deamon_transaction.set_response(response, question=question)
+                if len(self.errors):
+                    question = ("There were some errors detected"
+                                f"{' and ignored section of config' if warn_about_ignored_keys else ''}. "
+                                "Do you want to keep this potentially invalid new config?")
+                    error_state = "despite errors"
+                else:
+                    question = "There were ignored sections of config. Do you want to keep this potentially partial config?"
+                    error_state = "despite ignored sections"
+            response = f"{RESPONSE_OK} Confirmation received. New configuration has been applied {error_state}."
+            self.__deamon_transaction.set_response(response, question=question)
+        except Exception as exc:  # pylint: disable=broad-except
+            # We started transaction, something unexpected happened, we don't know if affirm query was sent or not... If
+            # we throw here we will leave timer running, but exception will be converted to failure response immediately
+            # too --- lets eat exception and in worst case timer will do the rollback...
+            logger.exception(exc)
         return event
 
     def set_config_file(self, config: Dict[str, Any], *, continue_despite_errors: bool = False) -> list[str]:
