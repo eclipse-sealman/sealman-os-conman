@@ -129,6 +129,10 @@ class InvalidImageFeaturesError(RuntimeError):
     pass
 
 
+class RebootError(RuntimeError):
+    pass
+
+
 PLEASE_REPORT = """please report to Welotec that this error occured if possible including whole
 error text, logs gathered with command 'device get-logs' and steps to reproduce"""
 
@@ -158,6 +162,7 @@ by somebody.  If you suspect that it is not your fault,
 """ + PLEASE_REPORT + "If you used file as input add also information how this file was generated"
 
 unexpected_error_messages = {}
+unexpected_error_messages["RebootError"] = "Error occurred while attempting to reboot the device"
 unexpected_error_messages["RuntimeError"] = "Unspecified runtime error"
 unexpected_error_messages["SetSerialError"] = "Unexpected error while setting serial interface (or interfaces)"
 unexpected_error_messages["MissingTransactionStatusError"] = "Missing status from roll-backable command"

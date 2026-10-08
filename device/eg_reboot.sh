@@ -11,5 +11,4 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 #
-rm -f /etc/eg/smart_ems_transaction_lock
-systemctl reboot -i
+systemctl reboot -i --when='+5 seconds'
