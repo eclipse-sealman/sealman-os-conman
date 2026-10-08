@@ -15,7 +15,6 @@ import grp
 import pwd
 import secrets
 import socket
-import threading
 from asyncio import IncompleteReadError
 from collections.abc import MutableMapping
 from configparser import RawConfigParser
@@ -27,11 +26,7 @@ from typing import Any, Dict, List, Iterator, Mapping, Optional, Union
 # Local imports
 import mpa.device.eeprom
 from mpa.common.logger import Logger
-from mpa.communication.common import (
-    InvalidPreconditionError,
-    PLEASE_REPORT,
-    expect_empty_message,
-)
+from mpa.communication.common import InvalidPreconditionError, PLEASE_REPORT
 from mpa.communication.inter_process_lock import InterProcessLock
 from mpa.communication.process import run_command, run_command_unchecked
 from mpa.communication.status_codes import DEVADMIN_GID, DEVREAD_GID
@@ -271,18 +266,6 @@ def get_all_users(*groups: int) -> List[Dict[str, str]]:
 def get_user_list() -> Dict[str, List[Dict[str, str]]]:
     users = get_all_users(DEVADMIN_GID, DEVREAD_GID)
     return {"users": users}
-
-
-def reboot() -> None:
-    logger.info("REBOOT: reboot()")
-    run_command_unchecked("pkexec /usr/sbin/eg_reboot")
-
-
-def reboot_device(message: bytes) -> None:
-    logger.info("REBOOT: reboot_device()")
-    expect_empty_message(message, "reboot_device")
-    delayed_reboot = threading.Timer(5, reboot)
-    delayed_reboot.start()
 
 
 def parse_boot_time(lines: Iterator[str]) -> int:

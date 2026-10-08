@@ -24,8 +24,8 @@ from mpa.common.common import RESPONSE_OK
 from mpa.communication import topics
 from mpa.communication.client import Client as CommunicationClient
 from mpa.communication.common import get_current_root_partition
-from mpa.device.common import reboot_device
 from mpa.device.os_info import OsInfo
+from mpa.device.reboot import reboot_device
 from mpa.swupdate.mgmtd_swupdate import full_update_with_reboot
 
 
@@ -222,7 +222,7 @@ class RebootService:
         return transaction
 
     def _reboot(self) -> None:
-        reboot_device(b"")
+        reboot_device()
 
 
 def create_default_command_handlers(
