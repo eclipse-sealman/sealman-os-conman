@@ -24,10 +24,11 @@ from .store import Store, DefaultStore
 from mpa.common.common import RESPONSE_FAILURE, RESPONSE_OK
 from mpa.common.killer_thread import KillerThread
 from mpa.common.logger import Logger
-from mpa.communication.common import InvalidParameterError, expect_empty_message
+from mpa.communication.common import InvalidParameterError, InvalidPreconditionError, expect_empty_message
 from mpa.communication.inter_process_lock import InterProcessLock
 from mpa.communication.status_codes import CERTIFICATE
 from mpa.config.configfiles import ConfigFiles
+from mpa.device.reboot import reboot_time_left
 
 logger = Logger(f"{sys.argv[0] if __name__ == '__main__' else __name__}")
 
@@ -112,12 +113,18 @@ class SmartEms:
         return f"{RESPONSE_OK} Smart EMS config successfuly updated"
 
     def check(self, _: bytes) -> None:
+        if reboot_time_left() is not None:
+            raise InvalidPreconditionError("Reboot is in progress")
+
         with LOCK.transaction("Communicate with Smart EMS"):
             self._run()
 
     def finish_pending_transaction(self) -> None:
         def background_task() -> None:
             try:
+                if reboot_time_left() is not None:
+                    raise InvalidPreconditionError("Reboot is in progress")
+
                 with LOCK.transaction("Finish pending Smart EMS transaction"):
                     transaction = self._safe_load()
                     if transaction is None:
@@ -194,9 +201,7 @@ class SmartEms:
                         self._messenger.send("smart_ems.rt", f"ERROR: {e}")
 
                     self._store.save(transaction)
-                    # TODO: if we get reports from field about abrupted firmware updates or
-                    # failed reboots we may want to change reboot trigger timing (5 seconds)
-                    # special case - immediately return
+                    # if there is no status in the transaction, it indicates a reboot is expected
                     # send response after reboot
                     # check _finish_pending_transaction()
                     if "commandStatus" not in transaction:
