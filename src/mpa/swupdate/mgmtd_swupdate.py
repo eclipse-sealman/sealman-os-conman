@@ -30,7 +30,7 @@ from mpa.communication import client as com_client
 from mpa.communication.client import background, guarded, sync
 from mpa.communication.message_parser import get_file
 from mpa.communication.common import SWUpdateError
-from mpa.device.common import reboot_device
+from mpa.device.reboot import reboot_device
 
 logger = Logger(f"{sys.argv[0] if __name__ == '__main__' else __name__}")
 _client: Optional[com_client.Client] = None
@@ -110,7 +110,7 @@ def full_update_with_reboot(
         })
         raise SWUpdateError(desc)
 
-    reboot_device(b"")
+    reboot_device()
 
 
 def perform_update(message: bytes) -> Optional[str]:

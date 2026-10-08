@@ -76,7 +76,7 @@ from mpa.device.common import MOTD_FILE
 from mpa.device.common import ISSUE_FILE
 from mpa.config.configfiles import ConfigFiles
 from mpa.device.common import CaseSensitiveConfigParser
-from mpa.device.common import get_serial_number, reboot_device
+from mpa.device.common import get_serial_number
 from mpa.device.common import KERNEL_SOCKET_PATH, SHADOW_SOCKET_PATH, SSH_SOCKET_PATH
 from mpa.device.common import get_serial_devices
 from mpa.device.common import LOGIND_CONF
@@ -88,6 +88,7 @@ from mpa.device.common import SYSCTL_SYSRQ_IGNORE_VALUE
 from mpa.device.common import ConfctlParser
 from mpa.device.device_config import SetConfig, check_if_backup_config_exists, load_backup_config, pending_rollback_error
 from mpa.device.os_info import OsInfo
+from mpa.device.reboot import reboot_device
 from mpa.smartems.client import DefaultSmartEmsClient
 from mpa.smartems.common import DeviceContext
 from mpa.smartems.config import SmartEmsConfig
@@ -911,8 +912,8 @@ def serialnumber_get(message: bytes) -> Dict[str, str]:
 def perform_factory_reset(message: bytes) -> str:
     expect_empty_message(message, "perform_factory_reset()")
     run_command("pkexec /usr/sbin/factory_reset")
-    run_command("bash -c \"(sleep 5; reboot)& \" ", capture_output=False)
-    return f"{RESPONSE_OK} Device will reboot in few seconds"
+    reboot_device()
+    return f"{RESPONSE_OK} Device will reboot soon"
 
 
 @empty_message_wrapper
