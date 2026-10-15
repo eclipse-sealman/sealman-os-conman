@@ -33,3 +33,4 @@ def update_timer(interval: int, timer: Path, timer_template: str) -> None:
     timer.write_text(timer_config)
     run_command(f"pkexec /bin/chmod 644 {timer}")
     run_command("systemctl daemon-reload")  # reload all systemd units
+    run_command(f"systemctl restart {timer.name}")  # reload above not always activates timers...
