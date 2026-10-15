@@ -24,6 +24,7 @@ from mpa.device.timer import update_timer
 SMARTEMS_TIMER_TEMPLATE = """[Unit]
 Description=Smart EMS Update timer
 Documentation=
+StartLimitIntervalSec=0
 
 [Timer]
 OnBootSec=180s
