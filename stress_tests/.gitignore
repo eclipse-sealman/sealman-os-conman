@@ -1,0 +1,3 @@
+.build/
+# code/.gitignore ignores generated README.md files, this one is not generated
+!README.md
