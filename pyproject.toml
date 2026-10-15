@@ -82,6 +82,10 @@ warn_unused_configs = true
 strict = true
 exclude = ["build/", "pandoc/", "readme_pre_expander.py", "tests/"]
 
+[tool.pytest.ini_options]
+# stress_tests need forwarder built from message_router, they are run separately (see stress_tests/README.md)
+testpaths = ["tests"]
+
 [tool.ruff]
 line-length = 130
 
