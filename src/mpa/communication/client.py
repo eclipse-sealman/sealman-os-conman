@@ -17,12 +17,15 @@ from __future__ import annotations
 
 # Standard imports
 import base64
+import contextlib
+import functools
 import grp
 import itertools
 import json
 import math
 import os
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import (
@@ -79,11 +82,18 @@ running, hence handler shall not run for extended periods of time.'''
 
 
 # Generic type-name used for typing hints (similar to T in C++ template <typename T>)
-# pylint seems to not understand this conventional name despite it being used even in
-# python documentation examples...
-T = TypeVar('T')  # pylint: disable=invalid-name
+T = TypeVar('T')
+F = TypeVar('F', bound=Callable[..., Any])
 
 logger = Logger(__name__)
+
+
+def _with_lock(method: F) -> F:
+    @functools.wraps(method)
+    def locked(self: Client.Socket, *args: Any, **kwargs: Any) -> Any:
+        with self.lock:
+            return method(self, *args, **kwargs)
+    return cast(F, locked)
 
 
 def _log_pub_sub_message(prefix: str, topic: Union[bytes, str], from_part: Optional[bytes],
@@ -221,7 +231,7 @@ class Client:
     documentation for details on the protocol. To summarize --- forwarder provides
     reliable pub/sub bus where each client can send and listen to annoucements. Eeach
     client needs to connect to forwarder and ping at regular itervals to ensure it has not
-    hanged.
+    hanged --- so user of client shall wait_and_receive in a loop!
 
     In addition to pure annoucements forwarder adds support for requests and responses ---
     clients may advertise that they will respond to requests on specific topics and
@@ -325,19 +335,21 @@ class Client:
         """
 
         def __init__(self, context: zmq.Context, uri: str, socket_type: Any):  # type: ignore
+            self.lock = threading.RLock()  # recursive because we need to lock low level and high level methods
             self.sock = context.socket(socket_type)
             self.uri = uri
             self.sock.connect(self.uri)
 
         # TODO Again strange thing about pyzmq --- I have not found a way to set
         # timeout on receiving multipart message, therefore this method...
+        @_with_lock  # also see overriden version in Sub(Socket)!
         def recv(self, timeout_ms: int) -> Optional[bytes]:
-            # evts = self.poller.poll(self.timeout_ms)
             evts = self.sock.poll(timeout_ms)
             if not evts:
                 return None
             return cast(bytes, self.sock.recv())
 
+        @_with_lock
         def more(self) -> bool:
             # for RCVMORE zmq returns int convertible to bool directly
             return bool(self.sock.getsockopt(zmq.RCVMORE))  # pylint: disable=no-member
@@ -386,6 +398,7 @@ class Client:
                 return raise_or_return(True)
             return raise_or_return(self.__eat_excessive_parts(what, timeout_ms, raise_error_after_timeout))
 
+        # @_with_lock without logging part...
         def send_multipart(self, message: Sequence[bytes], *,
                            shall_log: bool = True, log_all_parts: bool = False) -> None:
             if shall_log or log_all_parts:
@@ -395,21 +408,80 @@ class Client:
                     _log_pub_sub_message(f"Socket({self.uri}) ->", *message)
                 else:
                     logger.debug(f"Socket({self.uri}) <- {message[:3]!r} ...")
-            self.sock.send_multipart(message)
+            with self.lock:
+                self.sock.send_multipart(message)
 
     class Sub(Socket):
+        """
+        Sub socket is almost always polled in wait_and_receive(), so its recv needs to be interruptible.
+        """
+
+        __INTERRUPT_PIPE_READ_SIZE = 4096
+
         def __init__(self, context: zmq.Context, uri: str):  # type: ignore
             super().__init__(context, uri, zmq.SUB)  # pylint: disable=no-member
+            self.__interrupt_waiting = 0
+            self.__interrupt_done = threading.Condition()
+            self.__interrup_pipe_read, self.__interrupt_pipe_write = os.pipe()
+            os.set_blocking(self.__interrup_pipe_read, False)
+            os.set_blocking(self.__interrupt_pipe_write, False)
+            self.__poller = zmq.Poller()
+            self.__poller.register(self.sock, zmq.POLLIN)
+            self.__poller.register(self.__interrup_pipe_read, zmq.POLLIN)
+
+        @contextlib.contextmanager
+        def interrupted_recv(self) -> Iterator[zmq.Socket]:  # type: ignore
+            with self.__interrupt_done:
+                self.__interrupt_waiting += 1
+            try:
+                try:
+                    os.write(self.__interrupt_pipe_write, b"\0")
+                except BlockingIOError:
+                    # TODO shall we do something more? Poll shall wake up anyway due to filled pipe...
+                    logger.debug("Impossible happened we filled __interrupt_pipe_write with our zeros")
+                    pass
+                with self.lock:
+                    yield self.sock
+            finally:
+                with self.__interrupt_done:
+                    self.__interrupt_waiting -= 1
+                    self.__interrupt_done.notify_all()
+
+        def subscribe(self, topic: str) -> None:
+            with self.interrupted_recv() as sock:
+                sock.subscribe(topic)
+
+        def unsubscribe(self, topic: str) -> None:
+            with self.interrupted_recv() as sock:
+                sock.unsubscribe(topic)
+
+        def recv(self, timeout_ms: int) -> Optional[bytes]:
+            """ Overrides Socket.recv() to make it interruptible. """
+            with self.__interrupt_done:
+                self.__interrupt_done.wait_for(lambda: self.__interrupt_waiting == 0)
+            with self.lock:
+                events = dict(self.__poller.poll(timeout_ms))
+                if self.__interrup_pipe_read in events:
+                    try:
+                        while os.read(self.__interrup_pipe_read, self.__INTERRUPT_PIPE_READ_SIZE):
+                            pass
+                    except BlockingIOError:
+                        pass
+                if self.sock not in events:
+                    return None
+                return cast(bytes, self.sock.recv())
 
     class Push(Socket):
         def __init__(self, context: zmq.Context, uri: str):  # type: ignore
             super().__init__(context, uri, zmq.PUSH)  # pylint: disable=no-member
             self.sequence = 0
 
-        def inc_seq(self) -> None:
+        @_with_lock
+        def next_sequence(self) -> int:
             self.sequence = self.sequence + 1
             if self.sequence >= (1 << 24):
                 self.sequence = 1
+            return self.sequence
 
     class Req(Socket):
         INVALID_ID = b'\0\0\0\0\0\0\0\0'
@@ -456,6 +528,7 @@ class Client:
                               f"(part {part} in {response + ' ' if response else ''}response to {query})"))
             return message
 
+        @_with_lock
         def hello(self) -> None:
             self.last_ping = time.monotonic()
             try:
@@ -520,12 +593,14 @@ class Client:
                 return None
             self.__bad_response(subject, query)
 
+        @_with_lock
         def raise_lost_request_list_if_any(self) -> None:
             if len(self.lost_list) > 0:
                 exc = Client.LostRequestList(self.lost_list)
                 self.lost_list = list()
                 raise exc
 
+        @_with_lock
         def ping(self, *, raise_lost_request_list: bool = False) -> None:
             temp = self.last_ping
             self.last_ping = time.monotonic()
@@ -539,14 +614,15 @@ class Client:
             if subject != "LOST" and self.__shall_ping():
                 raise RuntimeError("New ping is needed before current is finished --- overload or misconfiguration")
 
+        @_with_lock
         def handle(self, topic: str, response_topic: str) -> None:
             self.send_multipart(["HANDLE".encode(), self.priv_id, topic.encode(), response_topic.encode()], log_all_parts=True)
             subject = self.__recv("subject", "HANDLE").decode("UTF-8")
             if len(subject) != 1 or subject[0] not in ['U', 'A', 'D']:
                 self.__handle_unexpected_response(subject, "HANDLE")
             self.excessive_parts_waiting("HANDLE", self.ping_period_ms, raise_error_after_timeout=True)
-            self.ping_if_needed()
 
+        @_with_lock
         def exists(self, topics: Sequence[str]) -> str:
             if len(topics) < 1:
                 return ""
@@ -558,6 +634,7 @@ class Client:
                 raise RuntimeError(f"Invalid response for EXISTS: {response}")
             return response
 
+        @_with_lock
         def ping_if_needed(self, *, raise_lost_request_list: bool = False) -> None:
             if self.__shall_ping():
                 self.ping(raise_lost_request_list=raise_lost_request_list)
@@ -1075,6 +1152,7 @@ class Client:
         else:
             self.not_allowed_handler = not_allowed_handler
         prefix = f"ipc://{os.path.abspath(directory)}/{group + '.' if group else ''}"
+        self.__wait_and_receive_lock = threading.Lock()
         self.context = zmq.Context()
         self.sub = self.Sub(self.context, return_first_defined(sub, prefix + "sub"))
         self.push = self.Push(self.context, return_first_defined(push, prefix + "push"))
@@ -1113,7 +1191,7 @@ class Client:
         self.req.hello()
         self.handlers.remove_stale_query_handlers()
         for topic in self.handlers.subscriptions():
-            self.sub.sock.subscribe(topic)
+            self.sub.subscribe(topic)
         for query, response in self.handlers.response_topics.items():
             # TODO add unhandle support
             # we cannot unhandle yet, but we don't expect long life of clients
@@ -1148,13 +1226,10 @@ class Client:
         c) any other type convertible to str with help of json.dumps --- in such case
            message body will json representation message
         """
-        self.__try_ping()
-        self.push.inc_seq()
-        publish_id = "M".encode() + self.push.sequence.to_bytes(3, Client.sequence_byte_order)
+        publish_id = "M".encode() + self.push.next_sequence().to_bytes(3, Client.sequence_byte_order)
         self.push.send_multipart([topic.encode(), self.req.priv_id, self.req.pub_id, publish_id, self.__autoconvert(message)])
 
     def respond(self, topic: str, response_message: Any, asker_id: bytes, query_message_id: bytes) -> None:
-        self.__try_ping()
         self.push.send_multipart([topic.encode(),
                                   self.req.priv_id,
                                   self.req.pub_id,
@@ -1162,14 +1237,13 @@ class Client:
                                   self.__autoconvert(response_message)])
 
     def exists(self, topics: Sequence[str]) -> str:
-        self.__try_ping()
         return self.req.exists(topics)
 
     def __register_query_handler(self, topic: str,
                                  handler: Client.QueryHandler.HandlerCallable) -> Client.QueryHandler:
         is_new_topic, query_handler = self.handlers.add_query_handler(topic, handler)
         if is_new_topic:
-            self.sub.sock.subscribe(topic)
+            self.sub.subscribe(topic)
         return query_handler
 
     def __register_affirm_request_handler(self,
@@ -1180,7 +1254,7 @@ class Client:
         affirm_query_topic = f"{affirm_prefix}.{query_topic}"
         affirm_response_topic = f"{affirm_prefix}.{response_topic}"
         if self.handlers.add_affirm_request_handler(affirm_query_topic, affirm_response_topic, handler):
-            self.sub.sock.subscribe(affirm_query_topic)
+            self.sub.subscribe(affirm_query_topic)
             # TODO add unhandle support
             # we cannot unhandle yet, but we don't expect long life of clients
             # so advertise affirm handlers anyway, as otherwise we would
@@ -1226,13 +1300,11 @@ class Client:
         receive query response without affirm request (not implemented yet, so do not use
         affirm handlers in long lived daemons until it is implemented).
         """
-        self.__try_ping()
         if not query_topic:
             query_topic = f"{topic}{query_suffix}"
         if not response_topic:
             response_topic = f"{topic}{response_suffix}"
-        self.push.inc_seq()
-        query_id = self.QueryId(self.req.pub_id, self.push.sequence)
+        query_id = self.QueryId(self.req.pub_id, self.push.next_sequence())
         if affirm_handler_generator is not None:
             self.__register_affirm_request_handler(query_topic, response_topic, affirm_prefix, affirm_handler_generator(self))
         if handler:
@@ -1254,16 +1326,15 @@ class Client:
                                     response_suffix: str = RESPONSE_SUFFIX,
                                     query_topic: Optional[str] = None,
                                     response_topic: Optional[str] = None) -> None:
-        self.__try_ping()
         if not query_topic:
             query_topic = f"{topic}{query_suffix}"
         if not response_topic:
             response_topic = f"{topic}{response_suffix}"
         if hidden:
             if self.handlers.add_hidden_responding_handler(query_topic, response_topic, handler):
-                self.sub.sock.subscribe(query_topic)
+                self.sub.subscribe(query_topic)
         elif self.handlers.add_responding_handler(query_topic, response_topic, handler):
-            self.sub.sock.subscribe(query_topic)
+            self.sub.subscribe(query_topic)
             self.req.handle(query_topic, response_topic)
 
     def has_responding_handler(self,
@@ -1277,11 +1348,11 @@ class Client:
 
     def __subscribe(self, topic: str, handler: T, handlers_action: Callable[[str, T], bool]) -> None:
         if handlers_action(topic,  handler):
-            self.sub.sock.subscribe(topic)
+            self.sub.subscribe(topic)
 
     def __unsubscribe(self, topic: str, handler: T, handlers_action: Callable[[str, T], bool]) -> None:
         if handlers_action(topic,  handler):
-            self.sub.sock.unsubscribe(topic)
+            self.sub.unsubscribe(topic)
 
     def register_trivial_handler(self, topic: str, handler: TrivialHandlerCallable) -> None:
         self.__subscribe(topic, handler, self.handlers.add_trivial_handler)
@@ -1296,16 +1367,14 @@ class Client:
         self.__unsubscribe(topic, handler, self.handlers.remove_observer_handler)
 
     def register_subscription_watcher(self, topic: str, handler: SubscriptionWatcherCallable) -> None:
-        self.__try_ping()
         new_topics = self.handlers.add_subscription_watcher(topic, handler)
         for top in new_topics:
-            self.sub.sock.subscribe(top)
+            self.sub.subscribe(top)
 
     def unregister_subscription_watcher(self, topic: str, handler: SubscriptionWatcherCallable) -> None:
-        self.__try_ping()
         removed_topics = self.handlers.remove_subscription_watcher(topic, handler)
         for top in removed_topics:
-            self.sub.sock.unsubscribe(top)
+            self.sub.unsubscribe(top)
 
     def register_topic_watcher(self,
                                topic: str,
@@ -1323,7 +1392,7 @@ class Client:
         watcher = Client.TopicWatcher(topic, handler, only_responders)
         new_topics = self.handlers.add_topic_watcher(watcher)
         for top in new_topics:
-            self.sub.sock.subscribe(top)
+            self.sub.subscribe(top)
         watcher.add_exists_result(self.req.exists([topic]))
 
     def unregister_topic_watcher(self,
@@ -1331,7 +1400,7 @@ class Client:
                                  handler: TopicWatcherCallable) -> None:
         removed_topics = self.handlers.remove_topic_watcher(topic, handler)
         for top in removed_topics:
-            self.sub.sock.unsubscribe(top)
+            self.sub.unsubscribe(top)
 
     def __receive_subscription_message(self, topic: str, timeout: Client.Timeout) -> Optional[bytes]:
         if topic[0] in OBSERVER_MARKS:
@@ -1359,6 +1428,14 @@ class Client:
         return Client.__ReceivedPartsTuple((global_sequence, from_part, message_id, message))
 
     def wait_and_receive(self, timeout_ms: Optional[int] = None) -> None:
+        if not self.__wait_and_receive_lock.acquire(blocking=False):
+            raise RuntimeError("wait_and_receive() is already running")
+        try:
+            self.__wait_and_receive(timeout_ms)
+        finally:
+            self.__wait_and_receive_lock.release()
+
+    def __wait_and_receive(self, timeout_ms: Optional[int]) -> None:
         try:
             self.__try_ping(raise_lost_request_list=True)
             timeout = self.Timeout(f"message on {self.sub.uri}", timeout_ms)
@@ -1383,7 +1460,7 @@ class Client:
             while self.sub.excessive_parts_waiting("excessive parts eating", self.__get_timeout_ms(timeout)):
                 self.req.ping_if_needed()
             if self.handlers.call_query_handlers(topic, from_part, message_id, message):
-                self.sub.sock.unsubscribe(topic)
+                self.sub.unsubscribe(topic)
             self.req.ping_if_needed()
             response_topic, response = self.handlers.call_normal_handler(topic, from_part, message_id, message)
             if response_topic is not None:
@@ -1391,10 +1468,6 @@ class Client:
             self.req.ping_if_needed()
             self.req.raise_lost_request_list_if_any()
         except Client.LostRequestList as lost_list:
-            # TODO we shall be doing this check on all externally available
-            # methods which can trigger ping --- check if we can use something
-            # like this: https://stackoverflow.com/a/18912081 with still keeping
-            # typing hints intact...
             handled = 0
             for lost in lost_list.lost_requests:
                 # TODO consider removing from list reports about requests which were eaten by query handlers...
@@ -1409,7 +1482,6 @@ class Client:
                             handler_for_not_allowed: Optional[RespondingHandlerCallable] = None,
                             *,
                             add_handler_for_not_allowed: bool = True) -> None:
-        self.__try_ping()
         if self.allowed_messages_filename and self.allowed_messages_filename.is_file():
             if handler_for_not_allowed is None:
                 handler_for_not_allowed = self.not_allowed_handler
