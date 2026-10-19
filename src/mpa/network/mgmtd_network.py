@@ -922,6 +922,7 @@ def main() -> None:
         messages[topic] = background(sync(fun), com_client.respond_to(_client, topic), post_respond=post_respond)
 
     messages = {}
+    # TODO consider adding ip lock to prevent parallel net_set_configs competing...
     in_bg(topics.net.set_config, guarded(net_set_config))
     messages[topics.net.set_ignore_default_route] = guarded(sync(net_set_ignore_default_route))
     messages[topics.net.get_config] = guarded(get_config_step_init)

@@ -24,6 +24,7 @@ from typing import Any, ClassVar
 # Local imports
 from .ipv4_address_range import IPv4AddressRange
 from .kea_control_socket_client import KeaControlSocketClient
+from mpa.communication.common import InvalidPreconditionError
 
 
 class LeaseTimeSecondsValueError(ValueError):
@@ -176,9 +177,8 @@ class Dhcp4Server:
         return []
 
     def set_config(self, config: dict[str, Any]) -> None:
-        new_kea_config = Dhcp4Config.from_dict(
-            {interface: subnet for interface, subnet in config.items() if subnet["enabled"]}
-        ).to_kea_dict()
+        new_dhcp4_config = Dhcp4Config.from_dict({interface: subnet for interface, subnet in config.items() if subnet["enabled"]})
+        new_kea_config = new_dhcp4_config.to_kea_dict()
         kea_config = {"Dhcp4": KeaControlSocketClient().config_get()["arguments"]["Dhcp4"]}
         kea_config["Dhcp4"]["interfaces-config"] = new_kea_config["Dhcp4"]["interfaces-config"]
         kea_config["Dhcp4"]["subnet4"] = new_kea_config["Dhcp4"]["subnet4"]
@@ -186,12 +186,21 @@ class Dhcp4Server:
         response = KeaControlSocketClient().config_test(kea_config)
         if response["result"] != 0:
             raise RuntimeError(response["text"])
-        response = KeaControlSocketClient().config_set(kea_config)
-        if response["result"] != 0:
-            raise RuntimeError(response["text"])
-        KeaControlSocketClient().config_write(str(self.KEA_CONFIG_PATH))
-        if response["result"] != 0:
-            raise RuntimeError(response["text"])
+        # if up causes kea reload which can race with us setting config here. Repeating socket call is simplest
+        # solution, a more complicated (and maybe better) could be add inter process locks or write kea on disk
+        # config directly from here before kea socket call... TODO if we still get races we shall consider it
+        for _ in range(3):
+            response = KeaControlSocketClient().config_set(kea_config)
+            if response["result"] != 0:
+                raise RuntimeError(response["text"])
+            response = KeaControlSocketClient().config_write(str(self.KEA_CONFIG_PATH))
+            if response["result"] != 0:
+                raise RuntimeError(response["text"])
+            if Dhcp4Config.from_kea_dict(KeaControlSocketClient().config_get()["arguments"]) == new_dhcp4_config:
+                break
+        else:
+            raise InvalidPreconditionError("Unable to write config --- write was silently ignored 3 times in a row, "
+                                           "suspected parallel up/down interface activity.")
         self.EG_CONFIG_PATH.write_text(json.dumps(config))
 
     def get_config(self) -> dict[str, Any]:
