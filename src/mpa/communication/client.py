@@ -1208,9 +1208,12 @@ class Client:
                 self.req.handle(query, response)
         self.req.ping_if_needed()
 
-    def __try_ping(self, *, raise_lost_request_list: bool = False) -> None:
+    def __try_ping(self, *, in_wait_and_receive: bool = False) -> None:
+        if not in_wait_and_receive and self.__wait_and_receive_lock.locked():
+            # when wait_and_recieve is active it is the sole pinger --- if it hangs we shall not hide it from forwarder...
+            return
         try:
-            self.req.ping_if_needed(raise_lost_request_list=raise_lost_request_list)
+            self.req.ping_if_needed(raise_lost_request_list=in_wait_and_receive)
         except Client.ConnectionResetError:
             self.__reinit()
 
@@ -1231,10 +1234,12 @@ class Client:
         c) any other type convertible to str with help of json.dumps --- in such case
            message body will json representation message
         """
+        self.__try_ping()
         publish_id = "M".encode() + self.push.next_sequence().to_bytes(3, Client.sequence_byte_order)
         self.push.send_multipart([topic.encode(), self.req.priv_id, self.req.pub_id, publish_id, self.__autoconvert(message)])
 
     def respond(self, topic: str, response_message: Any, asker_id: bytes, query_message_id: bytes) -> None:
+        self.__try_ping()
         self.push.send_multipart([topic.encode(),
                                   self.req.priv_id,
                                   self.req.pub_id,
@@ -1242,6 +1247,7 @@ class Client:
                                   self.__autoconvert(response_message)])
 
     def exists(self, topics: Sequence[str]) -> str:
+        self.__try_ping()
         return self.req.exists(topics)
 
     def __register_query_handler(self, topic: str,
@@ -1305,6 +1311,7 @@ class Client:
         receive query response without affirm request (not implemented yet, so do not use
         affirm handlers in long lived daemons until it is implemented).
         """
+        self.__try_ping()
         if not query_topic:
             query_topic = f"{topic}{query_suffix}"
         if not response_topic:
@@ -1331,6 +1338,7 @@ class Client:
                                     response_suffix: str = RESPONSE_SUFFIX,
                                     query_topic: Optional[str] = None,
                                     response_topic: Optional[str] = None) -> None:
+        self.__try_ping()
         if not query_topic:
             query_topic = f"{topic}{query_suffix}"
         if not response_topic:
@@ -1372,11 +1380,13 @@ class Client:
         self.__unsubscribe(topic, handler, self.handlers.remove_observer_handler)
 
     def register_subscription_watcher(self, topic: str, handler: SubscriptionWatcherCallable) -> None:
+        self.__try_ping()
         new_topics = self.handlers.add_subscription_watcher(topic, handler)
         for top in new_topics:
             self.sub.subscribe(top)
 
     def unregister_subscription_watcher(self, topic: str, handler: SubscriptionWatcherCallable) -> None:
+        self.__try_ping()
         removed_topics = self.handlers.remove_subscription_watcher(topic, handler)
         for top in removed_topics:
             self.sub.unsubscribe(top)
@@ -1394,6 +1404,7 @@ class Client:
 
             If only_responders is set to True pure listeners will be ignored.
         """
+        self.__try_ping()
         watcher = Client.TopicWatcher(topic, handler, only_responders)
         new_topics = self.handlers.add_topic_watcher(watcher)
         for top in new_topics:
@@ -1403,6 +1414,7 @@ class Client:
     def unregister_topic_watcher(self,
                                  topic: str,
                                  handler: TopicWatcherCallable) -> None:
+        self.__try_ping()
         removed_topics = self.handlers.remove_topic_watcher(topic, handler)
         for top in removed_topics:
             self.sub.unsubscribe(top)
@@ -1442,7 +1454,7 @@ class Client:
 
     def __wait_and_receive(self, timeout_ms: Optional[int]) -> None:
         try:
-            self.__try_ping(raise_lost_request_list=True)
+            self.__try_ping(in_wait_and_receive=True)
             timeout = self.Timeout(f"message on {self.sub.uri}", timeout_ms)
             raw_topic = self.__sub_recv(timeout=timeout, raise_lost_request_list=True)
             topic = raw_topic.decode("utf-8")
