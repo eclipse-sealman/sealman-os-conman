@@ -508,6 +508,87 @@ def register_while_dispatching(forwarder_dir: Path) -> Result:
     return _finish(errors, handler_called=handler_running.is_set(), registered_while_running=registered_while_running)
 
 
+DROP_TIMEOUT_S = 15  # forwarder drops client which did not ping for 10 seconds
+
+
+def collecting(responses: List[Any]) -> Callable[[Any], Optional[bool]]:
+    """Query handler storing response (or missing response indication) in responses"""
+    def handler(message: Any) -> Optional[bool]:
+        responses.append(message)
+        return None if isinstance(message, bytes) else False
+    return handler
+
+
+class DroppedClient:
+    """
+    Client with responding handler for "early" topic, which is not used until
+    forwarder drops it. Other client (echo, which answers "echo" queries)
+    detects it --- forwarder stops reporting handler (H) of dropped client in
+    EXISTS response (subscription S stays, as zmq does not know about it).
+    """
+
+    def __init__(self, forwarder_dir: Path, errors: Errors) -> None:
+        from mpa.communication.client import guarded, sync
+
+        self.echo = make_client(forwarder_dir, public_id="echo")
+        self.echo.register_responders({"echo": guarded(sync(lambda message: json.loads(message)))})
+        self.client = make_client(forwarder_dir, public_id="idle")
+        self.client.register_responding_handler("early", guarded(sync(lambda message: "early")))
+        self.reconnected_by: List[str] = []
+        hello = self.client.req.hello
+
+        def counting_hello() -> None:
+            self.reconnected_by.append(threading.current_thread().name)
+            hello()
+        self.client.req.hello = counting_hello
+        self.echo_receiver = Receiver(self.echo, errors, "echo")
+
+    def __enter__(self) -> DroppedClient:
+        self.echo_receiver.__enter__()
+        if not wait_until(lambda: self.echo.exists(["early.req"]) == "H", 5):
+            raise RuntimeError("Handler of client was not registered")
+        if not wait_until(lambda: self.echo.exists(["early.req"]) != "H", DROP_TIMEOUT_S):
+            raise RuntimeError("Forwarder did not drop unused client")
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.echo_receiver.__exit__(*exc)
+
+
+def use_after_being_dropped(forwarder_dir: Path) -> Result:
+    """
+    Daemons create client, but may do long initialization before they register
+    responders and start calling wait_and_receive() (e.g. mgmtd-device reads
+    TPM). Meanwhile forwarder drops the client, as nobody pings. Registering
+    responding handler and querying after that shall work --- forwarder
+    rejects handler registration with unknown private id (with INVALID
+    response), and query sent before reconnection gets missing response
+    indication when wait_and_receive() reconnects.
+    """
+    from mpa.communication.client import guarded, sync
+
+    errors = Errors()
+    responses: List[Any] = []
+    late_responses: List[Any] = []
+
+    def register() -> None:
+        dropped.client.register_responding_handler("late", guarded(sync(lambda message: "late")))
+
+    def query() -> None:
+        dropped.client.query("echo", "response", collecting(responses))
+
+    with DroppedClient(forwarder_dir, errors) as dropped:
+        errors.run("register", register)()
+        errors.run("query", query)()
+        with Receiver(dropped.client, errors):
+            wait_until(lambda: len(responses) > 0, 5)
+            dropped.echo.query("late", None, collecting(late_responses))
+            wait_until(lambda: len(late_responses) > 0, 5)
+            handlers = dropped.echo.exists(["early.req", "late.req"])
+    return _finish(errors, responses=responses, late_responses=late_responses, handlers=handlers,
+                   reconnected_by=dropped.reconnected_by)
+
+
 SCENARIOS: Dict[str, Callable[..., Result]] = {
     "concurrent_sends": concurrent_sends,
     "sends_while_receiving": sends_while_receiving,
@@ -516,6 +597,7 @@ SCENARIOS: Dict[str, Callable[..., Result]] = {
     "two_receivers": two_receivers,
     "queries_while_receiving": queries_while_receiving,
     "register_while_dispatching": register_while_dispatching,
+    "use_after_being_dropped": use_after_being_dropped,
 }
 
 

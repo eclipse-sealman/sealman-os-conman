@@ -14,15 +14,18 @@
 Thread safety of mpa.communication.client.Client. See client_scenarios.py for
 description of scenarios and README.md for how to run them.
 """
-from typing import Any, Dict
+from typing import Any, Dict, Sequence
 
 from conftest import ScenarioRunner
 
+RECONNECTION_LOG = "Received RESET response to PING"
 
-def assert_clean(result: Dict[str, Any]) -> None:
+
+def assert_clean(result: Dict[str, Any], *, expected_log: Sequence[str] = ()) -> None:
     assert result["violations"] == [], "\n".join(["Concurrent socket use detected:", *result["violations"][:5]])
     assert result["errors"] == [], "\n".join(["Exceptions in threads:", *result["errors"][:5]])
-    assert result["log"] == [], "\n".join(["Client logged warnings/errors:", *result["log"][:10]])
+    log = [line for line in result["log"] if not any(expected in line for expected in expected_log)]
+    assert log == [], "\n".join(["Client logged warnings/errors:", *log[:10]])
 
 
 def test_concurrent_sends_are_published_intact(run_scenario: ScenarioRunner) -> None:
@@ -71,3 +74,12 @@ def test_registering_handler_while_handler_of_same_topic_runs(run_scenario: Scen
     assert result["handler_called"]
     assert_clean(result)
     assert result["registered_while_running"] == [True], "Registration waited for running handler (lock held while calling it?)"
+
+
+def test_client_dropped_by_forwarder_reconnects_when_registering_and_querying(run_scenario: ScenarioRunner) -> None:
+    result = run_scenario("use_after_being_dropped")
+    assert_clean(result, expected_log=[RECONNECTION_LOG])
+    assert result["responses"] == [b'"response"'], "Query sent after being dropped did not get its response"
+    assert result["late_responses"] == [b'"late"'], "Handler registered after being dropped does not respond"
+    assert result["handlers"] == "HH", "Forwarder does not know about handlers registered before or after being dropped"
+    assert result["reconnected_by"] == ["MainThread"], "Client shall reconnect once, before registering handler"
