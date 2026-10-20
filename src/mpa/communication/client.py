@@ -1028,9 +1028,11 @@ class Client:
                 return not self.__is_topic_registered(topic)
             return False
 
-        def inform_query_handlers_about_lost_response(self, lost: Client.LostRequest) -> bool:
+        def inform_query_handlers_about_lost_response(self, lost: Client.LostRequest) -> Tuple[bool, Optional[str]]:
             """
-            Returns true if lost request indication was processed by one of the handlers.
+            Returns pair:
+            * first -> true if lost request indication was processed by one of the handlers
+            * second -> topic which is no longer in use and needs to be unsubscribed (or None)
             """
             if lost.response_topic and len(lost.response_topic) > 0:
                 topic = lost.response_topic
@@ -1038,23 +1040,23 @@ class Client:
                     topic_set = self.query[topic]
                 except KeyError:
                     logger.warning(f"Received lost request indication for unregistered topic {topic}")
-                    return False
-                if self.__handle_lost_message_in_query_handler(lost.sequence, topic, topic_set):
-                    return True
-                else:
+                    return False, None
+                retval = self.__handle_lost_message_in_query_handler(lost.sequence, topic, topic_set)
+                if not retval[0]:
                     logger.warning("Lost query id not found for response topic")
-            else:
-                # We need to identify query by id
-                for topic, topic_set in self.query.items():
-                    if self.__handle_lost_message_in_query_handler(lost.sequence, topic, topic_set,
-                                                                   query_topic=lost.query_topic):
-                        return True
-            return False
+                return retval
+            # We need to identify query by id
+            for topic, topic_set in self.query.items():
+                result = self.__handle_lost_message_in_query_handler(lost.sequence, topic, topic_set,
+                                                                     query_topic=lost.query_topic)
+                if result[0]:
+                    return result
+            return False, None
 
         def __handle_lost_message_in_query_handler(self, sequence: int, response_topic: str, topic_set: Set[Client.QueryHandler],
-                                                   *, query_topic: Optional[str] = None) -> bool:
+                                                   *, query_topic: Optional[str] = None) -> Tuple[bool, Optional[str]]:
             """
-            Returns true if lost message indication was processed by one of the handlers.
+            Returns same thing as inform_query_handlers_about_lost_response().
             """
             for hnd in topic_set:
                 if hnd.query_id and hnd.query_id.sequence == sequence:
@@ -1063,13 +1065,16 @@ class Client:
                     else:
                         message = f"LOST request indication for topic '{query_topic}' received from forwarder"
                     persisting = hnd.handle_missing_response_indication(message)
-                    if not persisting:
-                        topic_set.remove(hnd)
-                    assert len(topic_set) == len(self.query[response_topic])
+                    if persisting:
+                        return True, None
+                    topic_set.remove(hnd)
+                    assert self.query.get(response_topic) is topic_set
                     if len(topic_set) > 0:
-                        self.query.pop(response_topic)
-                    return True
-            return False
+                        return True, None
+                    self.query.pop(response_topic)
+                    # we return topic only if there are no non-query handlers registered to it
+                    return True, (None if self.__is_topic_registered(response_topic) else response_topic)
+            return False, None
 
         def call_normal_handler(self, topic: str,
                                 from_part: bytes,
@@ -1471,7 +1476,10 @@ class Client:
             handled = 0
             for lost in lost_list.lost_requests:
                 # TODO consider removing from list reports about requests which were eaten by query handlers...
-                if self.handlers.inform_query_handlers_about_lost_response(lost):
+                lost_handled, unused_topic = self.handlers.inform_query_handlers_about_lost_response(lost)
+                if unused_topic is not None:
+                    self.sub.unsubscribe(unused_topic)
+                if lost_handled:
                     handled += 1
             if len(lost_list.lost_requests) == handled:
                 logger.warning(f"Handled all of lost: {lost}")
